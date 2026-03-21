@@ -1,2 +1,48 @@
 # sth_boring
-nothing
+
+基于你提供的设计文档，当前仓库已新增 **SdkTestAgent 三层骨架实现**：
+
+- `sandbox`（环境抽象 + Docker Python 沙箱）
+- `docker_driver`（Docker SDK 驱动封装）
+- `cmd_ctrl`（任务语义控制层）
+
+目录位于：`src/sdk_test_agent/`。
+
+## 结构
+
+```text
+src/sdk_test_agent/
+├── sandbox/
+│   ├── base.py
+│   ├── models.py
+│   ├── errors.py
+│   ├── python/
+│   │   ├── artifact_codec.py
+│   │   └── docker_sandbox.py
+│   └── utils/paths.py
+├── docker_driver/
+│   ├── base.py
+│   ├── models.py
+│   ├── errors.py
+│   └── docker_sdk_driver.py
+└── cmd_ctrl/
+    ├── models.py
+    ├── dispatcher.py
+    ├── controller.py
+    ├── operator.py
+    ├── policies.py
+    └── errors.py
+```
+
+## 说明
+
+- `DockerSdkDriver` 是唯一直接接触 Docker SDK for Python 的模块。
+- `DockerPythonSandbox` 仅依赖 `BaseDockerDriver`，不直接调用 Docker SDK。
+- `cmd_ctrl` 仅通过 sandbox 调度执行，不依赖 Docker SDK。
+- 执行结果统一使用 `ExecResult`（包含 `exit_code/stdout/stderr/duration_sec/meta`）。
+
+## 运行测试
+
+```bash
+PYTHONPATH=src python -m pytest -q
+```
