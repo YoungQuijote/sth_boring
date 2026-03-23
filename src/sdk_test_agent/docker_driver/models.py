@@ -46,3 +46,30 @@ class ExecCreateSpec:
     tty: bool = False
     stream: bool = False
     demux: bool = True
+
+
+@dataclass(slots=True)
+class BuildImageSpec:
+    tag: str | None = None
+    dockerfile_text: str | None = None
+    dockerfile_path_in_context: str = "Dockerfile"
+
+    context_dir: str | None = None
+    context_tar_bytes: bytes | None = None
+    context_files: dict[str, bytes] = field(default_factory=dict)
+
+    pull: bool = False
+    nocache: bool = False
+    rm: bool = True
+    forcerm: bool = True
+    timeout: int | None = None
+    buildargs: dict[str, str] = field(default_factory=dict)
+
+    encoding: str | None = None
+
+
+@dataclass(slots=True)
+class BuildImageResult:
+    image_id: str
+    tags: list[str]
+    logs: list[dict[str, Any]] = field(default_factory=list)

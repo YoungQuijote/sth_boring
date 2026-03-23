@@ -1,4 +1,5 @@
 from sdk_test_agent.docker_driver.base import BaseDockerDriver
+from sdk_test_agent.docker_driver.models import BuildImageResult, BuildImageSpec, ContainerCreateSpec, ContainerRef, ExecCreateSpec
 from sdk_test_agent.docker_driver.models import ContainerCreateSpec, ContainerRef, ExecCreateSpec
 from sdk_test_agent.sandbox.models import ExecResult, SandboxSpec
 from sdk_test_agent.sandbox.python.docker_sandbox import DockerPythonSandbox
@@ -16,6 +17,9 @@ class FakeDriver(BaseDockerDriver):
 
     def ensure_image(self, image: str, pull_policy: str = "if_missing") -> str:
         return "img-123"
+
+    def build_image(self, spec: BuildImageSpec) -> BuildImageResult:
+        return BuildImageResult(image_id="img-123", tags=["test:latest"], logs=[])
 
     def create_container(self, spec: ContainerCreateSpec) -> ContainerRef:
         self.created = True

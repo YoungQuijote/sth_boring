@@ -1,5 +1,11 @@
 from types import SimpleNamespace
 
+import pytest
+
+from sdk_test_agent.docker_driver.build_context import make_tar_context
+from sdk_test_agent.docker_driver.docker_sdk_driver import DockerSdkDriver
+from sdk_test_agent.docker_driver.errors import DockerImageError
+from sdk_test_agent.docker_driver.models import BuildImageSpec, ContainerCreateSpec, ExecCreateSpec
 from sdk_test_agent.docker_driver.docker_sdk_driver import DockerSdkDriver
 from sdk_test_agent.docker_driver.models import ContainerCreateSpec, ExecCreateSpec
 
@@ -54,11 +60,20 @@ class FakeContainers:
 
 
 class FakeImages:
+    def __init__(self):
+        self.last_build_kwargs = None
+
     def get(self, image):
         return SimpleNamespace(id="img1")
 
     def pull(self, image):
         return SimpleNamespace(id="img1")
+
+    def build(self, **kwargs):
+        self.last_build_kwargs = kwargs
+        image = SimpleNamespace(id="built-img", tags=[kwargs.get("tag")] if kwargs.get("tag") else [])
+        logs = [{"stream": "ok"}]
+        return image, logs
 
 
 class FakeClient:
@@ -91,3 +106,63 @@ def test_docker_sdk_driver_happy_path() -> None:
     assert driver.logs(cref.container_id) == b"logs"
     driver.stop_container(cref.container_id)
     driver.remove_container(cref.container_id)
+
+
+def test_build_image_inline_dockerfile() -> None:
+    driver = DockerSdkDriver(client_factory=FakeClient)
+    result = driver.build_image(
+        BuildImageSpec(
+            tag="demo:inline",
+            dockerfile_text="FROM python:3.11-slim\nRUN python -V\n",
+        )
+    )
+
+    assert result.image_id == "built-img"
+    assert result.tags == ["demo:inline"]
+
+
+def test_build_image_with_context_files() -> None:
+    driver = DockerSdkDriver(client_factory=FakeClient)
+    result = driver.build_image(
+        BuildImageSpec(
+            tag="demo:files",
+            dockerfile_text="FROM python:3.11-slim\nCOPY hello.py /app/hello.py\n",
+            context_files={"hello.py": b"print('hello')\n"},
+        )
+    )
+
+    assert result.image_id == "built-img"
+
+
+def test_make_tar_context_empty_rejected() -> None:
+    with pytest.raises(ValueError):
+        make_tar_context(None)
+
+
+def test_build_image_invalid_spec_rejected() -> None:
+    driver = DockerSdkDriver(client_factory=FakeClient)
+    with pytest.raises(DockerImageError):
+        driver.build_image(BuildImageSpec())
+
+
+class FailingImages(FakeImages):
+    def build(self, **kwargs):
+        image = SimpleNamespace(id="built-img", tags=[])
+        logs = [{"errorDetail": {"message": "COPY failed: missing.txt"}}]
+        return image, logs
+
+
+class FailingClient(FakeClient):
+    def __init__(self):
+        self.images = FailingImages()
+        self.containers = FakeContainers()
+
+
+def test_build_image_error_from_logs() -> None:
+    driver = DockerSdkDriver(client_factory=FailingClient)
+    with pytest.raises(DockerImageError):
+        driver.build_image(
+            BuildImageSpec(
+                dockerfile_text="FROM python:3.11-slim\nCOPY missing.txt /tmp/missing.txt\n",
+            )
+        )

@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 
 from sdk_test_agent.sandbox.models import ExecResult
 
+from .models import BuildImageResult, BuildImageSpec, ContainerCreateSpec, ContainerRef, ExecCreateSpec
 from .models import ContainerCreateSpec, ContainerRef, ExecCreateSpec
 
 
@@ -16,6 +17,10 @@ class BaseDockerDriver(ABC):
 
     @abstractmethod
     def ensure_image(self, image: str, pull_policy: str = "if_missing") -> str: ...
+
+
+    @abstractmethod
+    def build_image(self, spec: BuildImageSpec) -> BuildImageResult: ...
 
     @abstractmethod
     def create_container(self, spec: ContainerCreateSpec) -> ContainerRef: ...

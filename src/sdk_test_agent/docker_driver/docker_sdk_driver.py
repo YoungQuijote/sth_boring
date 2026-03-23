@@ -1,17 +1,27 @@
 from __future__ import annotations
 
+import io
 import time
 from typing import Any, Callable
 
 from sdk_test_agent.sandbox.models import ExecResult
 
 from .base import BaseDockerDriver
+from .build_context import make_tar_context
 from .errors import (
     DockerArchiveError,
     DockerConnectionError,
     DockerContainerError,
     DockerExecError,
     DockerImageError,
+)
+from .models import (
+    BuildImageResult,
+    BuildImageSpec,
+    ContainerCreateSpec,
+    ContainerRef,
+    DriverConfig,
+    ExecCreateSpec,
 )
 from .models import ContainerCreateSpec, ContainerRef, DriverConfig, ExecCreateSpec
 
@@ -69,6 +79,69 @@ class DockerSdkDriver(BaseDockerDriver):
                 img = c.images.get(image)
                 return img.id
             raise DockerImageError(f"unknown pull_policy: {pull_policy}")
+        except DockerImageError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise DockerImageError(str(exc)) from exc
+
+
+    def build_image(self, spec: BuildImageSpec) -> BuildImageResult:
+        c = self._get_client()
+
+        if not any([spec.context_dir, spec.context_tar_bytes, spec.dockerfile_text, spec.context_files]):
+            raise DockerImageError("invalid build spec: no context source provided")
+
+        try:
+            if spec.context_dir:
+                image, logs = c.images.build(
+                    path=spec.context_dir,
+                    dockerfile=spec.dockerfile_path_in_context,
+                    tag=spec.tag,
+                    pull=spec.pull,
+                    nocache=spec.nocache,
+                    rm=spec.rm,
+                    forcerm=spec.forcerm,
+                    timeout=spec.timeout,
+                    buildargs=spec.buildargs,
+                )
+            else:
+                context_bytes = spec.context_tar_bytes
+                if context_bytes is None:
+                    try:
+                        context_bytes = make_tar_context(
+                            dockerfile_text=spec.dockerfile_text,
+                            dockerfile_path=spec.dockerfile_path_in_context,
+                            files=spec.context_files,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        raise DockerImageError(f"failed to generate build context: {exc}") from exc
+
+                image, logs = c.images.build(
+                    fileobj=io.BytesIO(context_bytes),
+                    custom_context=True,
+                    tag=spec.tag,
+                    pull=spec.pull,
+                    nocache=spec.nocache,
+                    rm=spec.rm,
+                    forcerm=spec.forcerm,
+                    timeout=spec.timeout,
+                    buildargs=spec.buildargs,
+                    encoding=spec.encoding,
+                )
+
+            log_list = list(logs or [])
+            for entry in log_list:
+                if isinstance(entry, dict) and entry.get("errorDetail"):
+                    raise DockerImageError(str(entry["errorDetail"]))
+                if isinstance(entry, dict) and entry.get("error"):
+                    raise DockerImageError(str(entry["error"]))
+
+            image_id = getattr(image, "id", None)
+            if not image_id:
+                raise DockerImageError("docker build did not return an image id")
+
+            tags = list(getattr(image, "tags", []) or [])
+            return BuildImageResult(image_id=image_id, tags=tags, logs=log_list)
         except DockerImageError:
             raise
         except Exception as exc:  # noqa: BLE001
