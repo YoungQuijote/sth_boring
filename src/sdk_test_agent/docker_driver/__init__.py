@@ -9,6 +9,7 @@ from .models import (
     DriverConfig,
     ExecCreateSpec,
 )
+from .models import ContainerCreateSpec, ContainerRef, DriverConfig, ExecCreateSpec
 
 __all__ = [
     "BaseDockerDriver",
@@ -20,4 +21,7 @@ __all__ = [
     "ContainerRef",
     "ExecCreateSpec",
     "make_tar_context",
+    "ContainerCreateSpec",
+    "ContainerRef",
+    "ExecCreateSpec",
 ]
