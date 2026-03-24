@@ -13,9 +13,6 @@ from sdk_test_agent.cmd_ctrl.operator import (
     CollectArtifactsOperator,
     GuardedExecOperator,
     InspectExecOperator,
-from sdk_test_agent.cmd_ctrl.errors import ActionDispatchError, PolicyViolationError
-from sdk_test_agent.cmd_ctrl.operator import (
-    CollectArtifactsOperator,
     InstallSdkOperator,
     RunPytestOperator,
     RunPythonOperator,
@@ -23,7 +20,6 @@ from sdk_test_agent.cmd_ctrl.operator import (
 )
 from sdk_test_agent.cmd_ctrl.policies import ActionPolicy, PathPolicy
 from sdk_test_agent.sandbox.models import ExecResult, ExecSpec, SandboxSnapshot
-from sdk_test_agent.sandbox.models import ExecResult, SandboxSnapshot
 
 
 class FakeSandbox:
@@ -77,9 +73,6 @@ class AlwaysDenyGuard:
 
 def _default_operators() -> dict:
     return {
-
-def test_controller_full_chain() -> None:
-    operators = {
         "install_sdk": InstallSdkOperator(),
         "write_file": WriteFileOperator(),
         "run_python": RunPythonOperator(),
@@ -92,7 +85,6 @@ def test_controller_full_chain() -> None:
 
 def test_controller_full_chain() -> None:
     operators = _default_operators()
-    }
     dispatcher = ActionDispatcher(operators)
     ctl = CommandController(
         sandbox=FakeSandbox(),
