@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+from dataclasses import asdict
+
+from .dispatcher import ActionDispatcher
+from .errors import (
+    CommandControlError,
+    GuardDeniedError,
+    GuardEscalationRequired,
+    OperatorExecutionError,
+)
 from .dispatcher import ActionDispatcher
 from .errors import CommandControlError, OperatorExecutionError
 from dataclasses import asdict
@@ -41,6 +50,8 @@ class CommandController:
 
             data = self.dispatcher.dispatch(action, payload, self.sandbox)
             return asdict(ActionResponse(ok=True, action=action, data=data))
+        except (GuardDeniedError, GuardEscalationRequired):
+            raise
         except CommandControlError:
             raise
         except Exception as exc:  # noqa: BLE001

@@ -3,6 +3,8 @@ from .dispatcher import ActionDispatcher
 from .operator import (
     BaseOperator,
     CollectArtifactsOperator,
+    GuardedExecOperator,
+    InspectExecOperator,
     InstallSdkOperator,
     RunPytestOperator,
     RunPythonOperator,
@@ -18,4 +20,6 @@ __all__ = [
     "RunPythonOperator",
     "RunPytestOperator",
     "CollectArtifactsOperator",
+    "InspectExecOperator",
+    "GuardedExecOperator",
 ]

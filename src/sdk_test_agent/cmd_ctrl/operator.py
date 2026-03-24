@@ -4,6 +4,10 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from sdk_test_agent.sandbox.base import BaseSandbox
+from sdk_test_agent.sandbox.models import ExecResult, ExecSpec
+
+from .errors import GuardDeniedError, GuardEscalationRequired
+from .policies import CommandGuard, DefaultCommandGuard, InspectPolicy
 from sdk_test_agent.sandbox.models import ExecResult
 
 
@@ -22,6 +26,13 @@ class BaseOperator(ABC):
             "timed_out": result.timed_out,
             "meta": result.meta,
         }
+
+    @staticmethod
+    def _payload_to_exec_spec(payload: dict[str, Any]) -> tuple[ExecSpec, int | None]:
+        argv = payload.get("argv", [])
+        workdir = payload.get("workdir")
+        timeout_sec = payload.get("timeout_sec")
+        return ExecSpec(argv=argv, workdir=workdir), timeout_sec
 
 
 class InstallSdkOperator(BaseOperator):
@@ -69,3 +80,34 @@ class CollectArtifactsOperator(BaseOperator):
         path = payload.get("path", ".")
         data, stat = sandbox.get_archive(path)
         return {"path": path, "size": len(data), "stat": stat, "archive": data}
+
+
+class InspectExecOperator(BaseOperator):
+    def __init__(self, inspect_policy: InspectPolicy | None = None) -> None:
+        self.inspect_policy = inspect_policy or InspectPolicy()
+
+    def run(self, sandbox: BaseSandbox, payload: dict[str, Any]) -> dict[str, Any]:
+        spec, timeout_sec = self._payload_to_exec_spec(payload)
+        self.inspect_policy.validate_argv(spec.argv)
+        result = sandbox.exec(spec, timeout_sec=timeout_sec)
+        return self._exec_to_dict(result)
+
+
+class GuardedExecOperator(BaseOperator):
+    def __init__(self, guard: CommandGuard | None = None) -> None:
+        self.guard = guard or DefaultCommandGuard()
+
+    def run(self, sandbox: BaseSandbox, payload: dict[str, Any]) -> dict[str, Any]:
+        spec, timeout_sec = self._payload_to_exec_spec(payload)
+        decision = self.guard.evaluate(spec.argv, payload)
+
+        if decision.decision == "deny":
+            raise GuardDeniedError(decision.reason or "guard denied execution")
+
+        if decision.decision == "escalate":
+            # Hook for future HITL integration in LangGraph flows.
+            # Current phase surfaces a dedicated exception for upper orchestration.
+            raise GuardEscalationRequired(decision.reason or "guard escalation required")
+
+        result = sandbox.exec(spec, timeout_sec=timeout_sec)
+        return self._exec_to_dict(result)

@@ -2,6 +2,17 @@ import pytest
 
 from sdk_test_agent.cmd_ctrl.controller import CommandController
 from sdk_test_agent.cmd_ctrl.dispatcher import ActionDispatcher
+from sdk_test_agent.cmd_ctrl.errors import (
+    ActionDispatchError,
+    GuardDeniedError,
+    GuardEscalationRequired,
+    PolicyViolationError,
+)
+from sdk_test_agent.cmd_ctrl.models import GuardDecision
+from sdk_test_agent.cmd_ctrl.operator import (
+    CollectArtifactsOperator,
+    GuardedExecOperator,
+    InspectExecOperator,
 from sdk_test_agent.cmd_ctrl.errors import ActionDispatchError, PolicyViolationError
 from sdk_test_agent.cmd_ctrl.operator import (
     CollectArtifactsOperator,
@@ -11,6 +22,7 @@ from sdk_test_agent.cmd_ctrl.operator import (
     WriteFileOperator,
 )
 from sdk_test_agent.cmd_ctrl.policies import ActionPolicy, PathPolicy
+from sdk_test_agent.sandbox.models import ExecResult, ExecSpec, SandboxSnapshot
 from sdk_test_agent.sandbox.models import ExecResult, SandboxSnapshot
 
 
@@ -48,6 +60,23 @@ class FakeSandbox:
     def get_archive(self, path):
         return b"arc", {"path": path}
 
+    def exec(self, spec: ExecSpec, timeout_sec: int | None = None):
+        out = " ".join(spec.argv).encode()
+        return ExecResult(exit_code=0, stdout=out, stderr=b"", duration_sec=0.1, meta={"timeout": timeout_sec})
+
+
+class AlwaysAllowGuard:
+    def evaluate(self, argv, payload):
+        return GuardDecision(decision="allow", reason="ok")
+
+
+class AlwaysDenyGuard:
+    def evaluate(self, argv, payload):
+        return GuardDecision(decision="deny", reason="blocked")
+
+
+def _default_operators() -> dict:
+    return {
 
 def test_controller_full_chain() -> None:
     operators = {
@@ -56,6 +85,13 @@ def test_controller_full_chain() -> None:
         "run_python": RunPythonOperator(),
         "run_pytest": RunPytestOperator(),
         "collect_artifacts": CollectArtifactsOperator(),
+        "inspect_exec": InspectExecOperator(),
+        "guarded_exec": GuardedExecOperator(guard=AlwaysAllowGuard()),
+    }
+
+
+def test_controller_full_chain() -> None:
+    operators = _default_operators()
     }
     dispatcher = ActionDispatcher(operators)
     ctl = CommandController(
@@ -72,6 +108,9 @@ def test_controller_full_chain() -> None:
     assert ctl.execute_action("install_sdk", {"mode": "editable", "path": "."})["ok"] is True
     assert ctl.execute_action("run_pytest", {"targets": ["tests/test_smoke.py"], "extra_args": ["-q"]})["ok"] is True
     assert ctl.execute_action("collect_artifacts", {"path": "out"})["ok"] is True
+
+    assert ctl.execute_action("inspect_exec", {"argv": ["pwd"]})["ok"] is True
+    assert ctl.execute_action("guarded_exec", {"argv": ["ls", "-la", "/workspace"]})["ok"] is True
 
     closed = ctl.close_session()
     assert closed["closed"] is True
@@ -93,3 +132,51 @@ def test_path_policy_block_escape() -> None:
     )
     with pytest.raises(PolicyViolationError):
         ctl.execute_action("write_file", {"path": "../evil.py", "content": ""})
+
+
+def test_inspect_exec_allow_cases() -> None:
+    op = InspectExecOperator()
+    sb = FakeSandbox()
+
+    assert op.run(sb, {"argv": ["pwd"]})["exit_code"] == 0
+    assert op.run(sb, {"argv": ["tail", "-n", "20", "/workspace/app.log"]})["exit_code"] == 0
+    assert op.run(sb, {"argv": ["python", "-V"]})["exit_code"] == 0
+
+
+def test_inspect_exec_reject_dangerous_cases() -> None:
+    op = InspectExecOperator()
+    sb = FakeSandbox()
+
+    with pytest.raises(PolicyViolationError):
+        op.run(sb, {"argv": ["vi", "x.py"]})
+
+    with pytest.raises(PolicyViolationError):
+        op.run(sb, {"argv": ["rm", "-rf", "/tmp/x"]})
+
+
+def test_guarded_exec_allow_deny_escalate() -> None:
+    sb = FakeSandbox()
+
+    allow_op = GuardedExecOperator(guard=AlwaysAllowGuard())
+    assert allow_op.run(sb, {"argv": ["ls", "-la", "/workspace"]})["exit_code"] == 0
+
+    deny_op = GuardedExecOperator(guard=AlwaysDenyGuard())
+    with pytest.raises(GuardDeniedError):
+        deny_op.run(sb, {"argv": ["ls"]})
+
+    default_op = GuardedExecOperator()
+    with pytest.raises(GuardEscalationRequired):
+        default_op.run(sb, {"argv": ["ls"]})
+
+
+def test_controller_preserves_guard_exceptions() -> None:
+    operators = {"guarded_exec": GuardedExecOperator()}
+    ctl = CommandController(
+        sandbox=FakeSandbox(),
+        dispatcher=ActionDispatcher(operators),
+        action_policy=ActionPolicy({"guarded_exec"}),
+        path_policy=PathPolicy("/workspace"),
+    )
+
+    with pytest.raises(GuardEscalationRequired):
+        ctl.execute_action("guarded_exec", {"argv": ["ls"]})

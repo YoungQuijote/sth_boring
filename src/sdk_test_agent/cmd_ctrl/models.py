@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any, Literal
+
+GuardDecisionType = Literal["allow", "deny", "escalate"]
 from typing import Any
 
 
@@ -16,3 +19,10 @@ class ActionResponse:
     action: str
     data: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
+
+
+@dataclass(slots=True)
+class GuardDecision:
+    decision: GuardDecisionType
+    reason: str | None = None
+    meta: dict[str, Any] = field(default_factory=dict)
