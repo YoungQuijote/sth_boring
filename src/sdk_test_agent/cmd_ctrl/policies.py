@@ -6,6 +6,8 @@ from typing import Any, Protocol
 from .errors import PolicyViolationError
 from .models import GuardDecision
 
+from .errors import PolicyViolationError
+
 
 class ActionPolicy:
     def __init__(self, allowed_actions: set[str]) -> None:

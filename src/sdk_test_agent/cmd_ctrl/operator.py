@@ -8,6 +8,7 @@ from sdk_test_agent.sandbox.models import ExecResult, ExecSpec
 
 from .errors import GuardDeniedError, GuardEscalationRequired
 from .policies import CommandGuard, DefaultCommandGuard, InspectPolicy
+from sdk_test_agent.sandbox.models import ExecResult
 
 
 class BaseOperator(ABC):
