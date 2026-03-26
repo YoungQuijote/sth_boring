@@ -4,11 +4,10 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from sdk_test_agent.sandbox.base import BaseSandbox
-from sdk_test_agent.sandbox.models import ExecResult, ExecSpec
+from sdk_test_agent.sandbox.sandbox_models import ExecResult, ExecSpec
 
-from .errors import GuardDeniedError, GuardEscalationRequired
+from .cmd_ctrl_errors import GuardDeniedError, GuardEscalationRequired
 from .policies import CommandGuard, DefaultCommandGuard, InspectPolicy
-from sdk_test_agent.sandbox.models import ExecResult
 
 
 class BaseOperator(ABC):

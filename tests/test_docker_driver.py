@@ -4,10 +4,8 @@ import pytest
 
 from sdk_test_agent.docker_driver.build_context import make_tar_context
 from sdk_test_agent.docker_driver.docker_sdk_driver import DockerSdkDriver
-from sdk_test_agent.docker_driver.errors import DockerImageError
-from sdk_test_agent.docker_driver.models import BuildImageSpec, ContainerCreateSpec, ExecCreateSpec
-from sdk_test_agent.docker_driver.docker_sdk_driver import DockerSdkDriver
-from sdk_test_agent.docker_driver.models import ContainerCreateSpec, ExecCreateSpec
+from sdk_test_agent.docker_driver.docker_driver_errors import DockerImageError
+from sdk_test_agent.docker_driver.docker_driver_models import BuildImageSpec, ContainerCreateSpec, ExecCreateSpec
 
 
 class FakeExecResult:

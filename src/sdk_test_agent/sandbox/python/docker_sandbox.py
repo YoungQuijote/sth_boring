@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from sdk_test_agent.docker_driver.base import BaseDockerDriver
-from sdk_test_agent.docker_driver.models import ContainerCreateSpec, ExecCreateSpec
+from sdk_test_agent.docker_driver.docker_driver_models import ContainerCreateSpec, ExecCreateSpec
 from sdk_test_agent.sandbox.base import BaseSandbox
-from sdk_test_agent.sandbox.errors import SandboxNotReadyError, SandboxStateError
-from sdk_test_agent.sandbox.models import ExecResult, ExecSpec, SandboxSnapshot, SandboxSpec
+from sdk_test_agent.sandbox.sandbox_errors import SandboxNotReadyError, SandboxStateError
+from sdk_test_agent.sandbox.sandbox_models import ExecResult, ExecSpec, SandboxSnapshot, SandboxSpec
 from sdk_test_agent.sandbox.python.artifact_codec import pack_text_file
 from sdk_test_agent.sandbox.utils.paths import safe_join
 

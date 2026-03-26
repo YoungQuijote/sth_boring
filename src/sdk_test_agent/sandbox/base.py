@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from .models import ExecResult, ExecSpec, SandboxSnapshot
+from .sandbox_models import ExecResult, ExecSpec, SandboxSnapshot
 
 
 class BaseSandbox(ABC):

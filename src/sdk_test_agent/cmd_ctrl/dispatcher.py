@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .errors import ActionDispatchError
+from .cmd_ctrl_errors import ActionDispatchError
 from .operator import BaseOperator
 
 

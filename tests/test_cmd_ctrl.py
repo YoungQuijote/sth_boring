@@ -2,13 +2,13 @@ import pytest
 
 from sdk_test_agent.cmd_ctrl.controller import CommandController
 from sdk_test_agent.cmd_ctrl.dispatcher import ActionDispatcher
-from sdk_test_agent.cmd_ctrl.errors import (
+from sdk_test_agent.cmd_ctrl.cmd_ctrl_errors import (
     ActionDispatchError,
     GuardDeniedError,
     GuardEscalationRequired,
     PolicyViolationError,
 )
-from sdk_test_agent.cmd_ctrl.models import GuardDecision
+from sdk_test_agent.cmd_ctrl.cmd_ctrl_models import GuardDecision
 from sdk_test_agent.cmd_ctrl.operator import (
     CollectArtifactsOperator,
     GuardedExecOperator,
@@ -19,7 +19,7 @@ from sdk_test_agent.cmd_ctrl.operator import (
     WriteFileOperator,
 )
 from sdk_test_agent.cmd_ctrl.policies import ActionPolicy, PathPolicy
-from sdk_test_agent.sandbox.models import ExecResult, ExecSpec, SandboxSnapshot
+from sdk_test_agent.sandbox.sandbox_models import ExecResult, ExecSpec, SandboxSnapshot
 
 
 class FakeSandbox:

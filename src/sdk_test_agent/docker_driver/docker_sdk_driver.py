@@ -4,18 +4,18 @@ import io
 import time
 from typing import Any, Callable
 
-from sdk_test_agent.sandbox.models import ExecResult
+from sdk_test_agent.sandbox.sandbox_models import ExecResult
 
 from .base import BaseDockerDriver
 from .build_context import make_tar_context
-from .errors import (
+from .docker_driver_errors import (
     DockerArchiveError,
     DockerConnectionError,
     DockerContainerError,
     DockerExecError,
     DockerImageError,
 )
-from .models import (
+from .docker_driver_models import (
     BuildImageResult,
     BuildImageSpec,
     ContainerCreateSpec,
@@ -23,7 +23,6 @@ from .models import (
     DriverConfig,
     ExecCreateSpec,
 )
-from .models import ContainerCreateSpec, ContainerRef, DriverConfig, ExecCreateSpec
 
 
 class DockerSdkDriver(BaseDockerDriver):
@@ -84,10 +83,8 @@ class DockerSdkDriver(BaseDockerDriver):
         except Exception as exc:  # noqa: BLE001
             raise DockerImageError(str(exc)) from exc
 
-
     def build_image(self, spec: BuildImageSpec) -> BuildImageResult:
         c = self._get_client()
-
         if not any([spec.context_dir, spec.context_tar_bytes, spec.dockerfile_text, spec.context_files]):
             raise DockerImageError("invalid build spec: no context source provided")
 
@@ -107,14 +104,11 @@ class DockerSdkDriver(BaseDockerDriver):
             else:
                 context_bytes = spec.context_tar_bytes
                 if context_bytes is None:
-                    try:
-                        context_bytes = make_tar_context(
-                            dockerfile_text=spec.dockerfile_text,
-                            dockerfile_path=spec.dockerfile_path_in_context,
-                            files=spec.context_files,
-                        )
-                    except Exception as exc:  # noqa: BLE001
-                        raise DockerImageError(f"failed to generate build context: {exc}") from exc
+                    context_bytes = make_tar_context(
+                        dockerfile_text=spec.dockerfile_text,
+                        dockerfile_path=spec.dockerfile_path_in_context,
+                        files=spec.context_files,
+                    )
 
                 image, logs = c.images.build(
                     fileobj=io.BytesIO(context_bytes),
@@ -139,9 +133,7 @@ class DockerSdkDriver(BaseDockerDriver):
             image_id = getattr(image, "id", None)
             if not image_id:
                 raise DockerImageError("docker build did not return an image id")
-
-            tags = list(getattr(image, "tags", []) or [])
-            return BuildImageResult(image_id=image_id, tags=tags, logs=log_list)
+            return BuildImageResult(image_id=image_id, tags=list(getattr(image, "tags", []) or []), logs=log_list)
         except DockerImageError:
             raise
         except Exception as exc:  # noqa: BLE001
@@ -184,8 +176,7 @@ class DockerSdkDriver(BaseDockerDriver):
         c = self._get_client()
         start = time.monotonic()
         try:
-            container = c.containers.get(spec.container_id)
-            out = container.exec_run(
+            out = c.containers.get(spec.container_id).exec_run(
                 cmd=spec.argv,
                 workdir=spec.workdir,
                 environment=spec.environment,
@@ -196,20 +187,12 @@ class DockerSdkDriver(BaseDockerDriver):
                 socket=False,
             )
             duration = time.monotonic() - start
-
-            exit_code = getattr(out, "exit_code", None)
             output = getattr(out, "output", None)
-            stdout: bytes | None = None
-            stderr: bytes | None = None
-            combined: bytes | None = None
-
-            if isinstance(output, tuple):
-                stdout, stderr = output
-            elif isinstance(output, bytes):
-                combined = output
-
+            stdout = output[0] if isinstance(output, tuple) else None
+            stderr = output[1] if isinstance(output, tuple) else None
+            combined = output if isinstance(output, bytes) else None
             return ExecResult(
-                exit_code=exit_code,
+                exit_code=getattr(out, "exit_code", None),
                 stdout=stdout,
                 stderr=stderr,
                 combined=combined,
@@ -221,10 +204,8 @@ class DockerSdkDriver(BaseDockerDriver):
             raise DockerExecError(str(exc)) from exc
 
     def put_archive(self, container_id: str, dest: str, data: bytes) -> None:
-        c = self._get_client()
         try:
-            ok = c.containers.get(container_id).put_archive(dest, data)
-            if not ok:
+            if not self._get_client().containers.get(container_id).put_archive(dest, data):
                 raise DockerArchiveError("put_archive returned false")
         except DockerArchiveError:
             raise
@@ -232,50 +213,39 @@ class DockerSdkDriver(BaseDockerDriver):
             raise DockerArchiveError(str(exc)) from exc
 
     def get_archive(self, container_id: str, path: str) -> tuple[bytes, dict]:
-        c = self._get_client()
         try:
-            stream, stat = c.containers.get(container_id).get_archive(path)
+            stream, stat = self._get_client().containers.get(container_id).get_archive(path)
             return b"".join(stream), stat
         except Exception as exc:  # noqa: BLE001
             raise DockerArchiveError(str(exc)) from exc
 
     def logs(self, container_id: str, tail: int | str = 200) -> bytes:
-        c = self._get_client()
         try:
-            return c.containers.get(container_id).logs(tail=tail)
+            return self._get_client().containers.get(container_id).logs(tail=tail)
         except Exception as exc:  # noqa: BLE001
             raise DockerContainerError(str(exc)) from exc
 
     def inspect_container(self, container_id: str) -> ContainerRef:
-        c = self._get_client()
         try:
-            container = c.containers.get(container_id)
+            container = self._get_client().containers.get(container_id)
             container.reload()
-            return ContainerRef(
-                container_id=container.id,
-                name=getattr(container, "name", None),
-                status=getattr(container, "status", None),
-                attrs=getattr(container, "attrs", {}),
-            )
+            return ContainerRef(container_id=container.id, name=getattr(container, "name", None), status=getattr(container, "status", None), attrs=getattr(container, "attrs", {}))
         except Exception as exc:  # noqa: BLE001
             raise DockerContainerError(str(exc)) from exc
 
     def stop_container(self, container_id: str, timeout_sec: int = 10) -> None:
-        c = self._get_client()
         try:
-            c.containers.get(container_id).stop(timeout=timeout_sec)
+            self._get_client().containers.get(container_id).stop(timeout=timeout_sec)
         except Exception as exc:  # noqa: BLE001
             raise DockerContainerError(str(exc)) from exc
 
     def remove_container(self, container_id: str, force: bool = False, remove_volumes: bool = False) -> None:
-        c = self._get_client()
         try:
-            c.containers.get(container_id).remove(force=force, v=remove_volumes)
+            self._get_client().containers.get(container_id).remove(force=force, v=remove_volumes)
         except Exception as exc:  # noqa: BLE001
             raise DockerContainerError(str(exc)) from exc
 
     def _get_client(self) -> Any:
         if self._client is None:
             self.connect()
-        assert self._client is not None
         return self._client
