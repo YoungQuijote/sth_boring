@@ -6,6 +6,8 @@ from sdk_test_agent.control_plane.runtime_registry.runtime_registry_enums import
 from sdk_test_agent.control_plane.runtime_registry.runtime_registry_repo import RuntimeRegistryRepo
 from sdk_test_agent.docker_driver.base import BaseDockerDriver
 from sdk_test_agent.docker_driver.docker_driver_models import BuildImageResult, BuildImageSpec, ContainerCreateSpec, ContainerRef, ExecCreateSpec
+from sdk_test_agent.inspection.env_inspector.docker_env_inspector import DockerEnvInspector
+from sdk_test_agent.inspection.package_inspector.java_package_inspector import JavaPackageInspector
 from sdk_test_agent.loop import JavaDeployInput, MinimalLoopService
 from sdk_test_agent.sandbox.sandbox_models import ExecResult
 
@@ -74,3 +76,34 @@ def test_minimal_loop_java_deploy(tmp_path: Path) -> None:
     assert out.container_id == "c1"
     assert out.deployment_id.startswith("deploy_")
     assert len(out.artifact_ids) == 3
+
+
+def test_minimal_loop_with_inspectors(tmp_path: Path) -> None:
+    artifact_repo = ArtifactManagerRepo(str(tmp_path / ARTIFACT_DB_NAME))
+    artifact_repo.init_schema()
+    artifact_svc = ArtifactManagerService(artifact_repo, str(tmp_path / "artifact_root"))
+
+    runtime_repo = RuntimeRegistryRepo(str(tmp_path / RUNTIME_DB_NAME))
+    runtime_repo.init_schema()
+    driver = FakeDriver()
+    runtime_svc = RuntimeManagerService(driver, runtime_repo, engine_id="engine_X", now_fn=lambda: "2026-01-01T00:00:00Z")
+
+    loop = MinimalLoopService(
+        artifact_svc,
+        runtime_svc,
+        driver,
+        package_inspector=JavaPackageInspector(),
+        env_inspector=DockerEnvInspector(driver),
+    )
+    out = loop.run_java_deploy(
+        JavaDeployInput(
+            sdk_name="demo-sdk",
+            sdk_version="1.0.0",
+            jar_bytes=b"jar",
+            pom_xml_bytes=b"<project/>",
+            jdk_bytes=b"jdk",
+        )
+    )
+
+    assert out.package_inspection_status in ("success", "partial", "failed")
+    assert out.env_inspection_status in ("success", "partial", "failed")

@@ -39,6 +39,10 @@ class InspectPolicy:
             "env",
             "python",
             "pip",
+            "which",
+            "java",
+            "mvn",
+            "gradle",
         }
         self._interactive = {"vi", "vim", "nano", "top", "less", "more", "bash", "sh"}
         self._deny_tokens = {"rm", "mv", "chmod", "chown", "-i", "--in-place"}
@@ -59,15 +63,19 @@ class InspectPolicy:
         if " rm " in f" {joined} ":
             raise PolicyViolationError("potentially destructive command pattern detected")
 
-        if bin_name == "python":
-            if argv in (["python", "-V"], ["python", "--version"], ["python", "-m", "pip", "list"]):
-                return
-            raise PolicyViolationError(
-                "python inspect only allows `python -V`, `python --version`, or `python -m pip list`"
-            )
+        if bin_name == "python" and argv not in (["python", "-V"], ["python", "--version"], ["python", "-m", "pip", "list"]):
+            raise PolicyViolationError("python inspect only allows version and pip list checks")
 
-        if bin_name == "pip" and argv != ["pip", "list"]:
-            raise PolicyViolationError("pip inspect only allows `pip list`")
+        if bin_name == "pip" and argv not in (["pip", "list"], ["pip", "-V"], ["pip", "--version"]):
+            raise PolicyViolationError("pip inspect only allows `pip list` or `pip -V`")
+
+        if bin_name == "which" and len(argv) != 2:
+            raise PolicyViolationError("which inspect expects one target")
+
+        if bin_name in {"java", "mvn", "gradle"}:
+            allowed = {"java": ["java", "-version"], "mvn": ["mvn", "-v"], "gradle": ["gradle", "-v"]}[bin_name]
+            if argv != allowed:
+                raise PolicyViolationError(f"{bin_name} inspect only allows {' '.join(allowed)}")
 
 
 class CommandGuard(Protocol):
