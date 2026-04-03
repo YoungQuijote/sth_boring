@@ -123,3 +123,17 @@ This field only indicates that the known issue should be addressed when the valu
   "recommended_handling_time": "later"
 }
 ```
+
+### ISSUE-0006
+```json
+{
+  "issue_id": "ISSUE-0006",
+  "location": "sdk_test_agent/control_plane",
+  "statement": "该模块命名为control_plane, 用户认为其语义与cmd_ctrl语义比较相近, 使用方可能一时难以辨认两个模块的区别, 建议其中一个更名或两个都更名.",
+  "create_time": "1775208585",
+  "update_time": "1775208585",
+  "level": "suggestion",
+  "status": "pending",
+  "recommended_handling_time": "later"
+}
+```
