@@ -137,3 +137,59 @@ This field only indicates that the known issue should be addressed when the valu
   "recommended_handling_time": "later"
 }
 ```
+
+### ISSUE-0007
+```json
+{
+  "issue_id": "ISSUE-0007",
+  "location": "sdk_test_agent/plan/plan_memory.py",
+  "statement": "这个模块很好，甚至已经实现了最简单的召回算法，但从长期来看：Memory系统应当是个较为独立的模块，等未来Memory模块做出来后，plan模块可以直接引用Memory模块的方法，或只写个Adapter2Memory即可.",
+  "create_time": "1778145367",
+  "update_time": "1778145367",
+  "level": "suggestion",
+  "status": "pending",
+  "recommended_handling_time": "later"
+}
+```
+
+### ISSUE-0008
+```json
+{
+  "issue_id": "ISSUE-0008",
+  "location": "src/sdk_test_agent/plan/planners/llm_planner::_build_prompt",
+  "statement": "当前parts的实现具有兜底机制：如果输入方没有提供prompt，则使用一段预设的文本。这个兜底机制很好，只是兜底文本过于简洁，但考虑到当前还有依赖模块尚未完成，也不知道会遇到什么样的阻塞，所以这块暂时不修改；未来，项目完成度较高时，可以回头把这段简略文本再优化一下；总的来说这个不算是个问题.",
+  "create_time": "1778146116",
+  "update_time": "1778146116",
+  "level": "suggestion",
+  "status": "pending",
+  "recommended_handling_time": "later"
+}
+```
+
+### ISSUE-0009
+```json
+{
+  "issue_id": "ISSUE-0009",
+  "location": "src/sdk_test_agent/plan/planners/llm_planner::_parse_response",
+  "statement": "当前：steps = [PlanStep(**step) for step in raw.get("steps", [])]，steps的赋值是直接解包的；按照设计方案，step最好由validator进行统一校验；不过考虑到LlmClientProtocol的各种方法当前尚未实现，这块先记个遗留，未来进行整改.",
+  "create_time": "1778146786",
+  "update_time": "1778146786",
+  "level": "minor",
+  "status": "pending",
+  "recommended_handling_time": "later"
+}
+```
+
+### ISSUE-0010
+```json
+{
+  "issue_id": "ISSUE-0010",
+  "location": "sdk_test_agent/plan/planners/rule_fallback_planner::RuleFallbackPlanner",
+  "statement": "当前这个模块基本是个"假的"，没太多实际功能，引了一个DemoJavaPlanner，那个Planner几乎仍然是个静态函数，这块作为烟测板块，可以先不急于修复，等代码完善六成，这块可以再设计完善一下.",
+  "create_time": "1778151920",
+  "update_time": "1778151920",
+  "level": "minor",
+  "status": "pending",
+  "recommended_handling_time": "later"
+}
+```
