@@ -171,7 +171,7 @@ This field only indicates that the known issue should be addressed when the valu
 {
   "issue_id": "ISSUE-0009",
   "location": "src/sdk_test_agent/plan/planners/llm_planner::_parse_response",
-  "statement": "当前：steps = [PlanStep(**step) for step in raw.get("steps", [])]，steps的赋值是直接解包的；按照设计方案，step最好由validator进行统一校验；不过考虑到LlmClientProtocol的各种方法当前尚未实现，这块先记个遗留，未来进行整改.",
+  "statement": "当前：steps = [PlanStep(**step) for step in raw.get(\"steps\", [])]，steps的赋值是直接解包的；按照设计方案，step最好由validator进行统一校验；不过考虑到LlmClientProtocol的各种方法当前尚未实现，这块先记个遗留，未来进行整改.",
   "create_time": "1778146786",
   "update_time": "1778146786",
   "level": "minor",
@@ -185,7 +185,7 @@ This field only indicates that the known issue should be addressed when the valu
 {
   "issue_id": "ISSUE-0010",
   "location": "sdk_test_agent/plan/planners/rule_fallback_planner::RuleFallbackPlanner",
-  "statement": "当前这个模块基本是个"假的"，没太多实际功能，引了一个DemoJavaPlanner，那个Planner几乎仍然是个静态函数，这块作为烟测板块，可以先不急于修复，等代码完善六成，这块可以再设计完善一下.",
+  "statement": "当前这个模块基本是个\"假的\"，没太多实际功能，引了一个DemoJavaPlanner，那个Planner几乎仍然是个静态函数，这块作为烟测板块，可以先不急于修复，等代码完善六成，这块可以再设计完善一下.",
   "create_time": "1778151920",
   "update_time": "1778151920",
   "level": "minor",
