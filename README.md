@@ -86,11 +86,13 @@ PYTHONPATH=src python -m pytest -q
 - `artifact_manager`：中间数据落盘 + SQLite 索引（`artifact_manage.db`）
 - `control_plane.runtime_registry`：资源登记（`runtime_registry.db`）
 - `control_plane.runtime_manager`：通过 `docker_driver` 做 Docker 资源动作并同步 registry
-- `loop`：最小 Java jar 部署闭环（input -> artifact -> build image -> container -> deployment record）
+- `inspection.package_inspector`：输入件检查（Java jar/pom/manifest）
+- `inspection.env_inspector`：运行环境只读探测（Docker 容器 probes）
+- `plan`：结构化规划层（demo / rule fallback / fast memory / LLM planner skeleton）
+- `llm`：跨模块 LLM request/response/protocol 抽象
+- `loop`：最小 Java jar 部署闭环（支持可选注入 inspectors）
 
 ## 重命名规范（已完成）
-
-为避免全局 `models.py/errors.py` 重名，已统一为：
 
 - `sandbox/sandbox_models.py`
 - `sandbox/sandbox_errors.py`
@@ -99,26 +101,20 @@ PYTHONPATH=src python -m pytest -q
 - `cmd_ctrl/cmd_ctrl_models.py`
 - `cmd_ctrl/cmd_ctrl_errors.py`
 
-## 数据库
-
-- Artifact DB: `artifact_manage.db`
-- Runtime Registry DB: `runtime_registry.db`
-
-当前仓库已扩展到 SdkTestAgent inspection 阶段基础能力：
-
-- `artifact_manager`：中间数据落盘 + SQLite 索引（`artifact_manage.db`）
-- `control_plane.runtime_registry`：资源登记（`runtime_registry.db`）
-- `control_plane.runtime_manager`：通过 `docker_driver` 做 Docker 资源动作并同步 registry
-- `inspection.package_inspector`：输入件检查（Java jar/pom/manifest）
-- `inspection.env_inspector`：运行环境只读探测（Docker 容器 probes）
-- `loop`：最小 Java jar 部署闭环（支持可选注入 inspectors）
-
 ## Inspection MVP
 
 - 顶层共用：`inspection_enums.py`、`inspection_models.py`
 - package inspector：`JavaPackageInspector`
 - env inspector：`DockerEnvInspector`
 - 最小 loop 集成：build 前 package inspect，容器启动后 env inspect（可选依赖注入）
+
+## Plan MVP
+
+- 计划模型：`ExecutionPlan`、`ExecutionPlanDraft`、`PlanStep`、`ReplanRequest`、`PlanRevision`
+- 规划器：`DemoJavaPlanner`、`RuleFallbackPlanner`、`FastPlanner`、`LlmPlanner`
+- 校验器：`PlanValidator`（step kind、depends_on、capability、risk、failure policy 等基础校验）
+- 记忆：`InMemoryPlanMemoryStore`
+- Prompt / Skill 文本：`src/sdk_test_agent/plan/prompts/` 与 `src/sdk_test_agent/plan/skills/`
 
 ## 测试
 
