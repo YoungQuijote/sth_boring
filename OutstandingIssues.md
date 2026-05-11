@@ -193,3 +193,59 @@ This field only indicates that the known issue should be addressed when the valu
   "recommended_handling_time": "later"
 }
 ```
+
+### ISSUE-0011
+```json
+{
+  "issue_id": "ISSUE-0011",
+  "location": "sdk_test_agent/llm/llm_config::LlmProviderConfig",
+  "statement": "当前这个class中的provider_type属性，未和sdk_test_agent.llm.llm_enums.LlmProviderType进行联合声明，造成class LlmProviderConfig的初始化不严谨",
+  "create_time": "1778471780",
+  "update_time": "1778471780",
+  "level": "suggestion",
+  "status": "pending",
+  "recommended_handling_time": "later"
+}
+```
+
+### ISSUE-0012
+```json
+{
+  "issue_id": "ISSUE-0012",
+  "location": "sdk_test_agent/llm/clients/openai_compatible_client/OpenAICompatibleLlmClient::_client_kwargs",
+  "statement": "当前这个方法构造的kwargs的键是静态的，两个点：1. 这块可以抽象出一个BaseModel，以便后续增删字段，也方便开发者在一个统一的地方能看到这个数据结构的定义方法；2. 字段不足，比如我在本地调测时，需要越过局域网的防火墙，所以得定义和装填httpx_client=httpx.Client(verify=False, timeout=300)，但这个字段无法通过上层接口直接注入，所以这块可以优化一下.",
+  "create_time": "1778487217",
+  "update_time": "1778487217",
+  "level": "minor",
+  "status": "pending",
+  "recommended_handling_time": "later"
+}
+```
+
+### ISSUE-0013
+```json
+{
+  "issue_id": "ISSUE-0013",
+  "location": "sdk_test_agent/llm/clients/openai_compatible_client::OpenAICompatibleLlmClient",
+  "statement": "这个class的初始化方法中定义了_client，却不能让用户直接传入client，而是让用户指定client_factory，再在内部通过client_factory方法完成client的初始化，这个设计是没问题的，这个思路可以保留；但是，结合到<### ISSUE-0012>，这里就有问题了：如果用户在自定义client时，用到了<_client_kwargs>方法静态构造以外的键时，怎么办？这个问题本质上还是由<### ISSUE-0012>所提及的方法的不完善而导致的，有望随着<### ISSUE-0012>的解决而解决，这里记个遗留问题，方便追踪.",
+  "create_time": "1778487755",
+  "update_time": "1778487755",
+  "level": "suggestion",
+  "status": "pending",
+  "recommended_handling_time": "later"
+}
+```
+
+### ISSUE-0014
+```json
+{
+  "issue_id": "ISSUE-0014",
+  "location": "src/sdk_test_agent/llm/streaming",
+  "statement": "这个模块尚无功能实现，作为MVP架构，这块暂时没有实现，可以理解；记个遗留问题，后续完善.",
+  "create_time": "1778488454",
+  "update_time": "1778488454",
+  "level": "minor",
+  "status": "pending",
+  "recommended_handling_time": "later"
+}
+```
