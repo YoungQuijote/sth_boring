@@ -213,7 +213,7 @@ This field only indicates that the known issue should be addressed when the valu
 {
   "issue_id": "ISSUE-0012",
   "location": "sdk_test_agent/llm/clients/openai_compatible_client/OpenAICompatibleLlmClient::_client_kwargs",
-  "statement": "当前这个方法构造的kwargs的键是静态的，两个点：1. 这块可以抽象出一个BaseModel，以便后续增删字段，也方便开发者在一个统一的地方能看到这个数据结构的定义方法；2. 字段不足，比如我在本地调测时，需要越过局域网的防火墙，所以得定义和装填httpx_client=httpx.Client(verify=False, timeout=300)，但这个字段无法通过上层接口直接注入，所以这块可以优化一下.",
+  "statement": "当前 `_client_kwargs` 已支持通过 `extra_client_kwargs` 透传 OpenAI client 参数，但缺少显式的 HTTP client 配置模型。对于 `http_client`、`verify`、`proxy`、`transport`、更细粒度 timeout 等高级场景，目前需要调用方手动构造并透传对象，后续可抽象出 `LlmHttpClientConfig` 或类似配置结构。",
   "create_time": "1778487217",
   "update_time": "1778487217",
   "level": "minor",
@@ -227,7 +227,7 @@ This field only indicates that the known issue should be addressed when the valu
 {
   "issue_id": "ISSUE-0013",
   "location": "sdk_test_agent/llm/clients/openai_compatible_client::OpenAICompatibleLlmClient",
-  "statement": "这个class的初始化方法中定义了_client，却不能让用户直接传入client，而是让用户指定client_factory，再在内部通过client_factory方法完成client的初始化，这个设计是没问题的，这个思路可以保留；但是，结合到<### ISSUE-0012>，这里就有问题了：如果用户在自定义client时，用到了<_client_kwargs>方法静态构造以外的键时，怎么办？这个问题本质上还是由<### ISSUE-0012>所提及的方法的不完善而导致的，有望随着<### ISSUE-0012>的解决而解决，这里记个遗留问题，方便追踪.",
+  "statement": "当前 `OpenAICompatibleLlmClient` 通过 `client_factory(**_client_kwargs())` 延迟构造 client，这个设计可以保留。但它对 `_client_kwargs` 的完备性有依赖：如果未来需要更复杂的 OpenAI/httpx client 构造参数，应优先完善 ISSUE-0012 中的配置模型，而不是在此处直接开放任意 client 注入。",
   "create_time": "1778487755",
   "update_time": "1778487755",
   "level": "suggestion",
