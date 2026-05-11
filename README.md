@@ -1,2 +1,52 @@
 # sth_boring
-nothing
+
+当前仓库已扩展到 SdkTestAgent plan 阶段基础能力：
+
+- `artifact_manager`：中间数据落盘 + SQLite 索引（`artifact_manage.db`）
+- `control_plane.runtime_registry`：资源登记（`runtime_registry.db`）
+- `control_plane.runtime_manager`：通过 `docker_driver` 做 Docker 资源动作并同步 registry
+- `inspection.package_inspector`：输入件检查（Java jar/pom/manifest）
+- `inspection.env_inspector`：运行环境只读探测（Docker 容器 probes）
+- `plan`：结构化规划层（demo / rule fallback / fast memory / LLM planner skeleton）
+- `llm`：跨模块 LLM 基础设施（provider/model/call config、fake client、OpenAI-compatible client、JSON parser）
+- `loop`：最小 Java jar 部署闭环（支持可选注入 inspectors）
+
+## 重命名规范（已完成）
+
+- `sandbox/sandbox_models.py`
+- `sandbox/sandbox_errors.py`
+- `docker_driver/docker_driver_models.py`
+- `docker_driver/docker_driver_errors.py`
+- `cmd_ctrl/cmd_ctrl_models.py`
+- `cmd_ctrl/cmd_ctrl_errors.py`
+
+## Inspection MVP
+
+- 顶层共用：`inspection_enums.py`、`inspection_models.py`
+- package inspector：`JavaPackageInspector`
+- env inspector：`DockerEnvInspector`
+- 最小 loop 集成：build 前 package inspect，容器启动后 env inspect（可选依赖注入）
+
+## Plan MVP
+
+- 计划模型：`ExecutionPlan`、`ExecutionPlanDraft`、`PlanStep`、`ReplanRequest`、`PlanRevision`
+- 规划器：`DemoJavaPlanner`、`RuleFallbackPlanner`、`FastPlanner`、`LlmPlanner`
+- 校验器：`PlanValidator`（step kind、depends_on、capability、risk、failure policy 等基础校验）
+- 记忆：`InMemoryPlanMemoryStore`
+- Prompt / Skill 文本：`src/sdk_test_agent/plan/prompts/` 与 `src/sdk_test_agent/plan/skills/`
+
+
+## LLM MVP
+
+- 三层配置：`LlmProviderConfig`、`LlmModelConfig`、`LlmCallConfig`
+- Model registry：provider/model/route 注册与 alias resolve
+- Clients：`FakeLlmClient`、`OpenAICompatibleLlmClient`
+- API protocol：Responses API 与 Chat Completions API request mapping
+- Structured output：`text`、`json_object`、`json_schema`
+- Parser：`LlmJsonResponseParser`
+
+## 测试
+
+```bash
+PYTHONPATH=src python -m pytest -q
+```
