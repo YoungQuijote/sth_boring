@@ -14,6 +14,7 @@
 - `inspection.package_inspector`：输入件检查（Java jar/pom/manifest）
 - `inspection.env_inspector`：运行环境只读探测（Docker 容器 probes）
 - `plan`：结构化规划层（demo / rule fallback / fast memory / LLM planner skeleton）
+- `capability`：系统动作空间契约层，声明 step kind 的 inputs / outputs schema、上下文依赖、风险与 planner 可见性
 - `execution`：串行解释 `ExecutionPlan`，调度 step executors，并收集结构化运行结果 / artifact / replan 请求
 - `llm`：跨模块 LLM 基础设施（provider/model/call config、fake client、OpenAI-compatible client、JSON parser）
 - `loop`：最小 Java jar 部署闭环（支持可选注入 inspectors）
@@ -42,6 +43,14 @@
 - 记忆：`InMemoryPlanMemoryStore`
 - Prompt / Skill 文本：`src/sdk_test_agent/plan/prompts/` 与 `src/sdk_test_agent/plan/skills/`
 
+
+## Capability MVP
+
+- 核心对象：`CapabilityDescriptor`、`CapabilityAvailability`、`CapabilitySnapshot`、`CapabilityResolutionRecord`
+- Builtin capabilities：`inspect_package`、`build_image`、`create_runtime`、`inspect_environment`、`run_command`、`execute_probe`、`collect_artifact`，以及 placeholder 能力
+- Snapshot：`CapabilityPanel` 根据 `available_context_keys`、风险上限、forbidden ids 与 placeholder/deprecated 策略生成稳定 `capability_digest`
+- Renderer：可将 capability snapshot 渲染为 LLM prompt context、schema map 或 JSON
+- PlanValidator 集成：可选基于 `CapabilitySnapshot` / `CapabilityRegistry` 校验 `PlanStep.inputs` 是否符合 capability schema
 
 ## Execution MVP
 
