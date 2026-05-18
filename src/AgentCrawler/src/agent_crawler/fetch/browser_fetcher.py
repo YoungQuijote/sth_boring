@@ -141,7 +141,9 @@ class BrowserFetcher:
                     except Exception:
                         pass
 
-                html = await page.content()
+                html = await self._safe_page_content(page)
+                if html is None:
+                    raise RuntimeError(f"Page content unavailable for {url}: page kept navigating or closed")
                 final_url = page.url
                 status_code = response.status if response is not None else 0
                 headers = dict(response.headers) if response is not None and response.headers is not None else {}
@@ -167,15 +169,16 @@ class BrowserFetcher:
                     )
                     auth_reason = f"{detection.reason};{login_wait_result.reason}"
                     if login_wait_result.success:
-                        html = await page.content()
-                        final_url = page.url
+                        final_html = await self._safe_page_content(page, attempts=8, retry_interval_ms=500)
+                        if final_html is not None:
+                            html = final_html
+                            final_url = page.url
                     else:
                         # Return the latest visible login/SSO page rather than stale pre-wait HTML.
-                        try:
-                            html = await page.content()
+                        latest_html = await self._safe_page_content(page, attempts=8, retry_interval_ms=500)
+                        if latest_html is not None:
+                            html = latest_html
                             final_url = page.url
-                        except Exception:
-                            pass
 
                 storage_state_reason = await self._try_save_storage_state(context, storage_state_path)
                 if storage_state_reason:
@@ -275,7 +278,10 @@ class BrowserFetcher:
 
         while now_ms() < deadline_ms:
             current_url = page.url
-            current_html = await page.content()
+            current_html = await self._safe_page_content(page)
+            if current_html is None:
+                await asyncio.sleep(interval_s)
+                continue
             current_density = self.auth_gate.compute_text_density_score(current_html)
             last_url = current_url
             last_density = current_density
@@ -346,6 +352,43 @@ class BrowserFetcher:
             started_ms,
             last_html_len,
         )
+
+    async def _safe_page_content(
+        self,
+        page: Any,
+        *,
+        attempts: int = 5,
+        retry_interval_ms: int = 300,
+        wait_load_state_ms: int = 1000,
+    ) -> str | None:
+        attempts = max(1, attempts)
+        for attempt in range(1, attempts + 1):
+            try:
+                return await page.content()
+            except Exception as exc:
+                if not self._is_transient_page_content_error(exc):
+                    raise
+                if attempt >= attempts:
+                    return None
+                if wait_load_state_ms > 0:
+                    try:
+                        await page.wait_for_load_state("domcontentloaded", timeout=wait_load_state_ms)
+                    except Exception:
+                        pass
+                await asyncio.sleep(max(0, retry_interval_ms) / 1000.0)
+        return None
+
+    def _is_transient_page_content_error(self, exc: Exception) -> bool:
+        message = str(exc).lower()
+        transient_markers = (
+            "page is navigating",
+            "changing the content",
+            "execution context was destroyed",
+            "target closed",
+            "page closed",
+            "browser has been closed",
+        )
+        return any(marker in message for marker in transient_markers)
 
     async def _success_selector_matches(self, page: Any) -> bool:
         for selector in self.config.auth.success_selectors:

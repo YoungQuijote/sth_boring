@@ -395,3 +395,71 @@ async def _browser_fetcher_interactive_login_success_updates_html_and_state(tmp_
     assert response.after_login_density_score > response.before_login_density_score
     assert storage_path.exists()
     assert browser.contexts[0].closed is True
+
+class TransientContentPage(FakePage):
+    def __init__(
+        self,
+        failures: int = 1,
+        message: str = "Page.content: Unable to retrieve content because the page is navigating and changing the content.",
+    ):
+        super().__init__()
+        self.failures = failures
+        self.message = message
+        self.wait_load_state_calls = []
+
+    async def content(self) -> str:
+        if self.failures > 0:
+            self.failures -= 1
+            raise RuntimeError(self.message)
+        return "<html><body>stable content</body></html>"
+
+    async def wait_for_load_state(self, state: str, *, timeout: int):
+        self.wait_load_state_calls.append((state, timeout))
+
+
+class NonTransientContentPage(FakePage):
+    async def content(self) -> str:
+        raise RuntimeError("Page.content: parser exploded in a non-retryable way")
+
+
+def test_safe_page_content_retries_transient_navigation_error() -> None:
+    asyncio.run(_safe_page_content_retries_transient_navigation_error())
+
+
+async def _safe_page_content_retries_transient_navigation_error() -> None:
+    fetcher = BrowserFetcher(BrowserFetcherConfig())
+    page = TransientContentPage(failures=2)
+
+    html = await fetcher._safe_page_content(page, attempts=3, retry_interval_ms=0, wait_load_state_ms=7)
+
+    assert html == "<html><body>stable content</body></html>"
+    assert page.wait_load_state_calls == [("domcontentloaded", 7), ("domcontentloaded", 7)]
+
+
+def test_safe_page_content_returns_none_after_transient_retries_exhausted() -> None:
+    asyncio.run(_safe_page_content_returns_none_after_transient_retries_exhausted())
+
+
+async def _safe_page_content_returns_none_after_transient_retries_exhausted() -> None:
+    fetcher = BrowserFetcher(BrowserFetcherConfig())
+    page = TransientContentPage(failures=3, message="Execution context was destroyed, most likely because of a navigation")
+
+    html = await fetcher._safe_page_content(page, attempts=2, retry_interval_ms=0, wait_load_state_ms=0)
+
+    assert html is None
+
+
+def test_safe_page_content_reraises_non_transient_errors() -> None:
+    asyncio.run(_safe_page_content_reraises_non_transient_errors())
+
+
+async def _safe_page_content_reraises_non_transient_errors() -> None:
+    fetcher = BrowserFetcher(BrowserFetcherConfig())
+    page = NonTransientContentPage()
+
+    try:
+        await fetcher._safe_page_content(page, attempts=2, retry_interval_ms=0)
+    except RuntimeError as exc:
+        assert "non-retryable" in str(exc)
+    else:
+        raise AssertionError("expected non-transient error to be raised")
