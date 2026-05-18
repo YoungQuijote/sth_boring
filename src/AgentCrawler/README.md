@@ -42,3 +42,23 @@ PYTHONPATH=src/AgentCrawler/src python src/AgentCrawler/examples/universal_demo.
 ```
 
 Browser fetching, LLM extraction, LLM relevance gate, and project-level artifact persistence are intentionally interface placeholders for later iterations.
+
+## BrowserFetcher v1
+
+`agent_crawler.fetch.BrowserFetcher` now supports Playwright-backed browser transport for JavaScript-rendered pages, optional `storage_state` reuse, and optional page retention through `BrowserPageRegistry` with TTL/LRU cleanup.
+
+Install browser binaries before running browser demos:
+
+```bash
+playwright install chromium
+```
+
+Examples:
+
+```bash
+PYTHONPATH=src/AgentCrawler/src python src/AgentCrawler/examples/browser_fetch_smoke.py
+PYTHONPATH=src/AgentCrawler/src python src/AgentCrawler/examples/browser_keep_open_demo.py
+PYTHONPATH=src/AgentCrawler/src python src/AgentCrawler/examples/browser_storage_state_demo.py
+```
+
+`keep_page_open=True` returns `page_ref` and `context_ref`; retained pages are closed by TTL/LRU eviction or `await fetcher.aclose()`.
