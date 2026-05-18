@@ -3,16 +3,18 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from .auth_gate import AuthDetectionResult, AuthGate, BrowserAuthConfig, LoginWaitResult, now_ms
 from .browser_registry import BrowserPageRegistry
 
 _PLAYWRIGHT_INSTALL_MESSAGE = (
     "BrowserFetcher requires playwright. Please install playwright and run playwright install chromium."
 )
+_INTERACTIVE_LOGIN_HEADLESS_ERROR = "interactive_login requires headed browser. Please set headless=False."
 
 
 @dataclass(slots=True)
@@ -32,6 +34,7 @@ class BrowserFetcherConfig:
     viewport_width: int | None = None
     viewport_height: int | None = None
     ignore_https_errors: bool = False
+    auth: BrowserAuthConfig = field(default_factory=BrowserAuthConfig)
 
 
 @dataclass(slots=True)
@@ -47,6 +50,17 @@ class BrowserFetchResponse:
     context_ref: str | None = None
     screenshot_path: str | None = None
     kept_open: bool = False
+    redirect_chain: list[str] = field(default_factory=list)
+    auth_required: bool = False
+    auth_confidence: float = 0.0
+    auth_reason: str | None = None
+    interactive_login_used: bool = False
+    interactive_login_success: bool | None = None
+    login_wait_reason: str | None = None
+    before_login_url: str | None = None
+    after_login_url: str | None = None
+    before_login_density_score: float | None = None
+    after_login_density_score: float | None = None
 
 
 class BrowserFetcher:
@@ -54,10 +68,14 @@ class BrowserFetcher:
         self,
         config: BrowserFetcherConfig | None = None,
         page_registry: BrowserPageRegistry | None = None,
+        auth_gate: AuthGate | None = None,
     ) -> None:
         self.config = config or BrowserFetcherConfig()
         if self.config.context_strategy != "per_fetch":
             raise ValueError("BrowserFetcher v1 only supports context_strategy='per_fetch'")
+        if self.config.auth.interactive_login and self.config.headless:
+            raise ValueError(_INTERACTIVE_LOGIN_HEADLESS_ERROR)
+        self.auth_gate = auth_gate or AuthGate(self.config.auth)
         self.page_registry = page_registry or BrowserPageRegistry(
             max_open_pages=self.config.max_open_pages,
             default_ttl_s=self.config.page_ttl_s,
@@ -127,12 +145,57 @@ class BrowserFetcher:
                 final_url = page.url
                 status_code = response.status if response is not None else 0
                 headers = dict(response.headers) if response is not None and response.headers is not None else {}
+                redirect_chain = self._build_redirect_chain(response)
+                detection = self.auth_gate.detect(
+                    source_url=url,
+                    final_url=final_url,
+                    html=html,
+                    redirect_chain=redirect_chain,
+                )
+                login_wait_result: LoginWaitResult | None = None
+                auth_reason = detection.reason
+                interactive_login_used = False
 
-                if storage_state_path is not None:
-                    storage_state_path.parent.mkdir(parents=True, exist_ok=True)
-                    await context.storage_state(path=str(storage_state_path))
+                if detection.login_required and self.config.auth.interactive_login:
+                    interactive_login_used = True
+                    login_wait_result = await self._wait_for_interactive_login(
+                        page=page,
+                        source_url=url,
+                        before_url=final_url,
+                        before_html=html,
+                        before_density_score=detection.text_density_score,
+                    )
+                    auth_reason = f"{detection.reason};{login_wait_result.reason}"
+                    if login_wait_result.success:
+                        html = await page.content()
+                        final_url = page.url
+                    else:
+                        # Return the latest visible login/SSO page rather than stale pre-wait HTML.
+                        try:
+                            html = await page.content()
+                            final_url = page.url
+                        except Exception:
+                            pass
+
+                storage_state_reason = await self._try_save_storage_state(context, storage_state_path)
+                if storage_state_reason:
+                    auth_reason = f"{auth_reason};{storage_state_reason}" if auth_reason else storage_state_reason
 
                 elapsed_ms = (time.monotonic() - started) * 1000.0
+                response_payload = self._make_response(
+                    url=url,
+                    final_url=final_url,
+                    status_code=status_code,
+                    html=html,
+                    headers=headers,
+                    elapsed_ms=elapsed_ms,
+                    redirect_chain=redirect_chain,
+                    detection=detection,
+                    auth_reason=auth_reason,
+                    interactive_login_used=interactive_login_used,
+                    login_wait_result=login_wait_result,
+                )
+
                 if should_keep_open:
                     handle = await self.page_registry.register(
                         page=page,
@@ -145,27 +208,11 @@ class BrowserFetcher:
                         ttl_s=self.config.page_ttl_s,
                     )
                     kept_open = True
-                    return BrowserFetchResponse(
-                        url=url,
-                        final_url=final_url,
-                        status_code=status_code,
-                        html=html,
-                        headers=headers,
-                        elapsed_ms=elapsed_ms,
-                        page_ref=handle.page_ref,
-                        context_ref=handle.context_ref,
-                        kept_open=True,
-                    )
+                    response_payload.page_ref = handle.page_ref
+                    response_payload.context_ref = handle.context_ref
+                    response_payload.kept_open = True
 
-                return BrowserFetchResponse(
-                    url=url,
-                    final_url=final_url,
-                    status_code=status_code,
-                    html=html,
-                    headers=headers,
-                    elapsed_ms=elapsed_ms,
-                    kept_open=False,
-                )
+                return response_payload
             finally:
                 if not kept_open:
                     await self._close_page_and_context(page, context)
@@ -210,6 +257,179 @@ class BrowserFetcher:
                     self._pw = None
                 raise RuntimeError(f"Browser launch failed: {exc}. {_PLAYWRIGHT_INSTALL_MESSAGE}") from exc
 
+    async def _wait_for_interactive_login(
+        self,
+        *,
+        page: Any,
+        source_url: str,
+        before_url: str,
+        before_html: str,
+        before_density_score: float,
+    ) -> LoginWaitResult:
+        started_ms = now_ms()
+        deadline_ms = started_ms + self.config.auth.login_wait_timeout_ms
+        interval_s = max(self.config.auth.login_poll_interval_ms, 50) / 1000.0
+        last_url = before_url
+        last_density = before_density_score
+        last_html_len = len(before_html or "")
+
+        while now_ms() < deadline_ms:
+            current_url = page.url
+            current_html = await page.content()
+            current_density = self.auth_gate.compute_text_density_score(current_html)
+            last_url = current_url
+            last_density = current_density
+            last_html_len = len(current_html or "")
+
+            if self.auth_gate.success_url_matches(current_url):
+                return self._login_wait_result(
+                    True,
+                    "success_url_pattern",
+                    before_url,
+                    current_url,
+                    before_density_score,
+                    current_density,
+                    started_ms,
+                    len(current_html),
+                )
+
+            if await self._success_selector_matches(page):
+                return self._login_wait_result(
+                    True,
+                    "success_selector",
+                    before_url,
+                    current_url,
+                    before_density_score,
+                    current_density,
+                    started_ms,
+                    len(current_html),
+                )
+
+            detection = self.auth_gate.detect(
+                source_url=source_url,
+                final_url=current_url,
+                html=current_html,
+                redirect_chain=[],
+            )
+            source_in_url = self.auth_gate.source_url_in_current_url(source_url, current_url)
+            if not detection.login_required and current_density > before_density_score + 0.05:
+                return self._login_wait_result(
+                    True,
+                    "density_improved_not_login",
+                    before_url,
+                    current_url,
+                    before_density_score,
+                    current_density,
+                    started_ms,
+                    len(current_html),
+                )
+            if source_in_url and not detection.login_required and current_density > before_density_score:
+                return self._login_wait_result(
+                    True,
+                    "source_url_returned_not_login",
+                    before_url,
+                    current_url,
+                    before_density_score,
+                    current_density,
+                    started_ms,
+                    len(current_html),
+                )
+            await asyncio.sleep(interval_s)
+
+        return self._login_wait_result(
+            False,
+            "login_wait_timeout",
+            before_url,
+            last_url,
+            before_density_score,
+            last_density,
+            started_ms,
+            last_html_len,
+        )
+
+    async def _success_selector_matches(self, page: Any) -> bool:
+        for selector in self.config.auth.success_selectors:
+            try:
+                locator = page.locator(selector)
+                if await locator.count() > 0:
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def _login_wait_result(
+        self,
+        success: bool,
+        reason: str,
+        before_url: str,
+        after_url: str,
+        before_density_score: float,
+        after_density_score: float,
+        started_ms: float,
+        final_html_len: int,
+    ) -> LoginWaitResult:
+        return LoginWaitResult(
+            success=success,
+            reason=reason,
+            before_url=before_url,
+            after_url=after_url,
+            before_density_score=before_density_score,
+            after_density_score=after_density_score,
+            waited_ms=max(0.0, now_ms() - started_ms),
+            final_html_len=final_html_len,
+        )
+
+    def _make_response(
+        self,
+        *,
+        url: str,
+        final_url: str,
+        status_code: int,
+        html: str,
+        headers: dict[str, str],
+        elapsed_ms: float,
+        redirect_chain: list[str],
+        detection: AuthDetectionResult,
+        auth_reason: str | None,
+        interactive_login_used: bool,
+        login_wait_result: LoginWaitResult | None,
+    ) -> BrowserFetchResponse:
+        return BrowserFetchResponse(
+            url=url,
+            final_url=final_url,
+            status_code=status_code,
+            html=html,
+            headers=headers,
+            elapsed_ms=elapsed_ms,
+            redirect_chain=redirect_chain,
+            auth_required=detection.login_required,
+            auth_confidence=detection.confidence,
+            auth_reason=auth_reason,
+            interactive_login_used=interactive_login_used,
+            interactive_login_success=login_wait_result.success if login_wait_result is not None else None,
+            login_wait_reason=login_wait_result.reason if login_wait_result is not None else None,
+            before_login_url=detection.final_url if detection.login_required else None,
+            after_login_url=login_wait_result.after_url if login_wait_result is not None else None,
+            before_login_density_score=detection.text_density_score if detection.login_required else None,
+            after_login_density_score=login_wait_result.after_density_score if login_wait_result is not None else None,
+        )
+
+    def _build_redirect_chain(self, response: Any | None) -> list[str]:
+        if response is None:
+            return []
+        chain: list[str] = []
+        req = getattr(response, "request", None)
+        seen: set[int] = set()
+        while req is not None and id(req) not in seen:
+            seen.add(id(req))
+            req_url = getattr(req, "url", None)
+            if req_url:
+                chain.append(req_url)
+            redirected_from = getattr(req, "redirected_from", None)
+            req = redirected_from() if callable(redirected_from) else redirected_from
+        chain.reverse()
+        return chain
+
     def _build_context_kwargs(self, storage_state_path: Path | None) -> dict[str, Any]:
         kwargs: dict[str, Any] = {"ignore_https_errors": self.config.ignore_https_errors}
         if self.config.user_agent is not None:
@@ -233,6 +453,16 @@ class BrowserFetcher:
     def _resolve_auth_profile_id(self, session: object | None) -> str | None:
         auth_profile = getattr(session, "auth_profile", None)
         return getattr(auth_profile, "profile_id", None) or getattr(auth_profile, "auth_profile_id", None)
+
+    async def _try_save_storage_state(self, context: Any | None, storage_state_path: Path | None) -> str | None:
+        if context is None or storage_state_path is None:
+            return None
+        try:
+            storage_state_path.parent.mkdir(parents=True, exist_ok=True)
+            await context.storage_state(path=str(storage_state_path))
+            return None
+        except Exception as exc:
+            return f"storage_state_save_failed:{exc}"
 
     async def _route_handler(self, route: Any) -> None:
         try:

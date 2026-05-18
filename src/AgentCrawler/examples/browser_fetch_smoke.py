@@ -17,6 +17,8 @@ async def main() -> None:
         print("final_url:", resp.final_url)
         print("html_len:", len(resp.html))
         print("kept_open:", resp.kept_open)
+        print("auth_required:", resp.auth_required)
+        print("auth_confidence:", resp.auth_confidence)
         print(resp.html[:300])
     finally:
         await fetcher.aclose()

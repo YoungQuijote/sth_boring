@@ -62,3 +62,13 @@ PYTHONPATH=src/AgentCrawler/src python src/AgentCrawler/examples/browser_storage
 ```
 
 `keep_page_open=True` returns `page_ref` and `context_ref`; retained pages are closed by TTL/LRU eviction or `await fetcher.aclose()`.
+
+### Interactive login demo
+
+For auth-gated pages, BrowserFetcher v1.1 detects likely login pages and can optionally wait for a user to complete login in a headed browser:
+
+```bash
+PYTHONPATH=src/AgentCrawler/src python src/AgentCrawler/examples/browser_interactive_login_demo.py
+```
+
+Interactive login must be explicitly enabled and requires `headless=False`; the response includes `auth_required`, `auth_confidence`, `interactive_login_used`, `interactive_login_success`, login wait reason, and before/after density fields.

@@ -231,3 +231,167 @@ async def _hybrid_fetcher_adapts_browser_response() -> None:
     assert payload.html is not None
     assert b"Rendered by fake browser" in (payload.raw_bytes or b"")
     await browser_fetcher.aclose()
+
+class FakeRedirectRequest:
+    def __init__(self, url: str, redirected_from=None):
+        self.url = url
+        self.redirected_from = redirected_from
+
+
+class FakeRedirectResponse(FakeResponse):
+    def __init__(self):
+        first = FakeRedirectRequest("https://example.test/private")
+        second = FakeRedirectRequest("https://example.test/login?next=https%3A//example.test/private", first)
+        self.request = second
+
+
+class LoginPage(FakePage):
+    def __init__(self):
+        super().__init__("https://example.test/login?next=https%3A//example.test/private")
+
+    async def goto(self, url: str, *, wait_until: str, timeout: int):
+        self.goto_calls.append((url, wait_until, timeout))
+        return FakeRedirectResponse()
+
+    async def content(self) -> str:
+        return """
+        <html><body>
+          <form action="/login"><input name="email"><input type="password" name="password"></form>
+          <p>Sign in to continue to https://example.test/private</p>
+        </body></html>
+        """
+
+
+class LoginBrowser(FakeBrowser):
+    async def new_context(self, **kwargs) -> FakeContext:
+        page = LoginPage()
+        context = FakeContext(page)
+        self.contexts.append(context)
+        self.context_kwargs.append(kwargs)
+        return context
+
+
+class InteractiveLoginPage(FakePage):
+    def __init__(self):
+        super().__init__("https://example.test/login?next=https%3A//example.test/private")
+        self.content_calls = 0
+
+    @property
+    def url(self) -> str:
+        if self.content_calls >= 1:
+            return "https://example.test/private"
+        return "https://example.test/login?next=https%3A//example.test/private"
+
+    @url.setter
+    def url(self, value: str) -> None:
+        self._initial_url = value
+
+    async def content(self) -> str:
+        self.content_calls += 1
+        if self.content_calls == 1:
+            return """
+            <html><body>
+              <form><input type="password"></form>
+              <p>Login for https://example.test/private</p>
+            </body></html>
+            """
+        return "<html><body><main>Private dashboard content with many useful words and no login form.</main></body></html>"
+
+
+class InteractiveLoginBrowser(FakeBrowser):
+    async def new_context(self, **kwargs) -> FakeContext:
+        page = InteractiveLoginPage()
+        context = FakeContext(page)
+        self.contexts.append(context)
+        self.context_kwargs.append(kwargs)
+        return context
+
+
+def test_auth_gate_detects_login_with_redirect_and_password() -> None:
+    from agent_crawler.fetch import AuthGate, BrowserAuthConfig
+
+    gate = AuthGate(BrowserAuthConfig())
+    result = gate.detect(
+        source_url="https://example.test/private",
+        final_url="https://example.test/login?next=https%3A//example.test/private",
+        html='<form><input type="password">Sign in</form>',
+        redirect_chain=["https://example.test/private", "https://example.test/login"],
+    )
+
+    assert result.login_required is True
+    assert result.confidence >= 0.45
+    assert result.has_password_input is True
+    assert result.has_redirect_history is True
+    assert "login" in result.matched_url_keywords
+
+
+def test_browser_fetcher_auth_required_without_interactive_login() -> None:
+    asyncio.run(_browser_fetcher_auth_required_without_interactive_login())
+
+
+async def _browser_fetcher_auth_required_without_interactive_login() -> None:
+    browser = LoginBrowser()
+    fetcher = BrowserFetcher(BrowserFetcherConfig())
+    fetcher._browser = browser
+
+    response = await fetcher.fetch("https://example.test/private")
+
+    assert response.auth_required is True
+    assert response.auth_confidence >= 0.45
+    assert response.interactive_login_used is False
+    assert response.interactive_login_success is None
+    assert response.before_login_url == response.final_url
+    assert response.before_login_density_score is not None
+    assert response.redirect_chain == [
+        "https://example.test/private",
+        "https://example.test/login?next=https%3A//example.test/private",
+    ]
+    assert browser.contexts[0].closed is True
+
+
+def test_browser_fetcher_rejects_headless_interactive_login() -> None:
+    from agent_crawler.fetch import BrowserAuthConfig
+
+    try:
+        BrowserFetcher(BrowserFetcherConfig(headless=True, auth=BrowserAuthConfig(interactive_login=True)))
+    except ValueError as exc:
+        assert "interactive_login requires headed browser" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")
+
+
+def test_browser_fetcher_interactive_login_success_updates_html_and_state(tmp_path) -> None:
+    asyncio.run(_browser_fetcher_interactive_login_success_updates_html_and_state(tmp_path))
+
+
+async def _browser_fetcher_interactive_login_success_updates_html_and_state(tmp_path) -> None:
+    from agent_crawler.fetch import BrowserAuthConfig
+
+    browser = InteractiveLoginBrowser()
+    storage_path = tmp_path / "interactive_state.json"
+    session = CrawlSession(
+        domain="example.test",
+        auth_profile=AuthProfile(profile_id="demo", storage_state_path=str(storage_path)),
+        transport=TransportKind.BROWSER,
+    )
+    fetcher = BrowserFetcher(
+        BrowserFetcherConfig(
+            headless=False,
+            auth=BrowserAuthConfig(interactive_login=True, login_wait_timeout_ms=500, login_poll_interval_ms=10),
+        )
+    )
+    fetcher._browser = browser
+
+    response = await fetcher.fetch("https://example.test/private", session=session)
+
+    assert response.auth_required is True
+    assert response.interactive_login_used is True
+    assert response.interactive_login_success is True
+    assert response.login_wait_reason in {"density_improved_not_login", "source_url_returned_not_login"}
+    assert response.final_url == "https://example.test/private"
+    assert "Private dashboard content" in response.html
+    assert response.after_login_density_score is not None
+    assert response.before_login_density_score is not None
+    assert response.after_login_density_score > response.before_login_density_score
+    assert storage_path.exists()
+    assert browser.contexts[0].closed is True
