@@ -39,6 +39,7 @@
 
 - 计划模型：`ExecutionPlan`、`ExecutionPlanDraft`、`PlanStep`、`ReplanRequest`、`PlanRevision`
 - 规划器：`DemoJavaPlanner`、`RuleFallbackPlanner`、`FastPlanner`、`LlmPlanner`
+- Finalizer：`PlanFinalizer` 将 `ExecutionPlanDraft` 编译为带系统可信 ID / 时间 / capability metadata 的 `ExecutionPlan(status=draft)`
 - 校验器：`PlanValidator`（step kind、depends_on、capability、risk、failure policy 等基础校验）
 - 记忆：`InMemoryPlanMemoryStore`
 - Prompt / Skill 文本：`src/sdk_test_agent/plan/prompts/` 与 `src/sdk_test_agent/plan/skills/`
