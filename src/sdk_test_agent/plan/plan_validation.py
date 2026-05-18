@@ -3,6 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from sdk_test_agent.capability.capability_enums import CapabilityStatus
+from sdk_test_agent.capability.capability_models import CapabilitySnapshot
+from sdk_test_agent.capability.capability_registry import CapabilityRegistry
+from sdk_test_agent.capability.schema_validation import validate_payload_against_schema
+
 from .plan_enums import VALID_FAILURE_POLICIES, VALID_RISK_LEVELS, StepRiskLevel, ValidationSeverity, ValidationStatus
 from .plan_models import ExecutionPlan, ExecutionPlanDraft, PlanStep
 
@@ -32,12 +37,14 @@ class PlanValidator:
         supported_step_kinds: set[str],
         available_capabilities: set[str] | None = None,
         max_step_count: int | None = None,
+        capability_registry: CapabilityRegistry | None = None,
     ) -> None:
         self.supported_step_kinds = supported_step_kinds
         self.available_capabilities = available_capabilities
         self.max_step_count = max_step_count
+        self.capability_registry = capability_registry
 
-    def validate(self, plan: ExecutionPlan | ExecutionPlanDraft) -> PlanValidationResult:
+    def validate(self, plan: ExecutionPlan | ExecutionPlanDraft, capability_snapshot: CapabilitySnapshot | None = None) -> PlanValidationResult:
         issues: list[ValidationIssue] = []
         steps = list(plan.steps or [])
         if not steps:
@@ -64,11 +71,11 @@ class PlanValidator:
 
         known = {s.step_id for s in steps}
         for idx, step in enumerate(steps):
-            issues.extend(self._validate_step(step, idx, known))
+            issues.extend(self._validate_step(step, idx, known, capability_snapshot))
 
         return self._result(issues)
 
-    def _validate_step(self, step: PlanStep, idx: int, known_step_ids: set[str]) -> list[ValidationIssue]:
+    def _validate_step(self, step: PlanStep, idx: int, known_step_ids: set[str], capability_snapshot: CapabilitySnapshot | None = None) -> list[ValidationIssue]:
         issues: list[ValidationIssue] = []
         loc = f"steps[{idx}]"
         for dep in step.depends_on:
@@ -86,6 +93,40 @@ class PlanValidator:
             issues.append(self._issue("step.risk.high", ValidationSeverity.WARNING, "high risk step requires review", loc))
         if step.on_failure not in VALID_FAILURE_POLICIES:
             issues.append(self._issue("step.on_failure.invalid", ValidationSeverity.ERROR, f"invalid on_failure {step.on_failure}", loc))
+        issues.extend(self._validate_step_capability_contract(step, loc, capability_snapshot))
+        return issues
+
+    def _validate_step_capability_contract(self, step: PlanStep, loc: str, capability_snapshot: CapabilitySnapshot | None) -> list[ValidationIssue]:
+        issues: list[ValidationIssue] = []
+        descriptor = None
+        availability = None
+        if capability_snapshot is not None:
+            descriptor_by_kind = {d.step_kind: d for d in capability_snapshot.capabilities}
+            availability_by_kind = {a.step_kind: a for a in capability_snapshot.availability}
+            descriptor = descriptor_by_kind.get(step.kind)
+            availability = availability_by_kind.get(step.kind)
+            if descriptor is None or availability is None:
+                issues.append(self._issue("step.capability.unknown", ValidationSeverity.ERROR, f"step kind {step.kind} is not present in capability snapshot", loc))
+                return issues
+            if availability.status != CapabilityStatus.ENABLED:
+                issues.append(
+                    self._issue(
+                        "step.capability.unavailable",
+                        ValidationSeverity.ERROR,
+                        f"capability for step kind {step.kind} is {availability.status}: {availability.reason or 'not enabled'}",
+                        loc,
+                    )
+                )
+        elif self.capability_registry is not None:
+            descriptor = self.capability_registry.maybe_get_by_step_kind(step.kind)
+            if descriptor is None:
+                issues.append(self._issue("step.capability.unknown", ValidationSeverity.ERROR, f"step kind {step.kind} is not registered as a capability", loc))
+                return issues
+
+        if descriptor is not None:
+            errors = validate_payload_against_schema(step.inputs, descriptor.input_schema)
+            for error in errors:
+                issues.append(self._issue("step.inputs.schema_invalid", ValidationSeverity.ERROR, error, loc))
         return issues
 
     @staticmethod

@@ -25,6 +25,7 @@ class ArtifactKind:
     BUILD_LOG = "build.log"
     PROBE_RESULT = "probe.result"
     REPORT_JSON = "report.json"
+    SNAPSHOT_CAPABILITY = "snapshot.capability"
 
 
 class MimeType:
