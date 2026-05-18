@@ -20,3 +20,45 @@ This is a extensible web module skeleton for an Agent:
 - `webkit.pipeline.rerank` — `SimpleReranker`
 - `webkit.spiders.base` — `Spider`
 - `webkit.spiders.wiki` — `WikiSpider` (example adapter)
+
+## New `agent_crawler` architecture skeleton
+
+The legacy `webkit` package remains available. The new `agent_crawler` package adds stable module boundaries for:
+
+1. Input/Policy
+2. Session
+3. Fetch
+4. Extract + initial Clean
+5. Assess
+6. Fallback loop
+7. Render
+8. Emit logs / artifact adapter placeholders
+
+Current runnable path is HTTP + universal extraction via `CrawlerRunner`:
+
+```bash
+PYTHONPATH=src/AgentCrawler/src python src/AgentCrawler/examples/fetch_smoke.py https://example.com/
+PYTHONPATH=src/AgentCrawler/src python src/AgentCrawler/examples/universal_demo.py https://example.com/
+```
+
+Browser fetching, LLM extraction, LLM relevance gate, and project-level artifact persistence are intentionally interface placeholders for later iterations.
+
+## BrowserFetcher v1
+
+`agent_crawler.fetch.BrowserFetcher` now supports Playwright-backed browser transport for JavaScript-rendered pages, optional `storage_state` reuse, and optional page retention through `BrowserPageRegistry` with TTL/LRU cleanup.
+
+Install browser binaries before running browser demos:
+
+```bash
+playwright install chromium
+```
+
+Examples:
+
+```bash
+PYTHONPATH=src/AgentCrawler/src python src/AgentCrawler/examples/browser_fetch_smoke.py
+PYTHONPATH=src/AgentCrawler/src python src/AgentCrawler/examples/browser_keep_open_demo.py
+PYTHONPATH=src/AgentCrawler/src python src/AgentCrawler/examples/browser_storage_state_demo.py
+```
+
+`keep_page_open=True` returns `page_ref` and `context_ref`; retained pages are closed by TTL/LRU eviction or `await fetcher.aclose()`.
