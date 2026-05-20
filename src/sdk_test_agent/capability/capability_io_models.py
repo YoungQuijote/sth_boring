@@ -13,11 +13,18 @@ class InspectExecPayload(BaseModel):
     timeout_sec: int = Field(default=30, ge=1, le=300)
 
 
+class RunPythonPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    argv: list[str] = Field(min_length=1)
+    timeout_sec: int = Field(default=30, ge=1, le=300)
+
+
 class RunCommandInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    action: Literal["inspect_exec"]
-    payload: InspectExecPayload
+    action: Literal["inspect_exec", "run_python"]
+    payload: InspectExecPayload | RunPythonPayload
 
 
 class RunCommandOutput(BaseModel):

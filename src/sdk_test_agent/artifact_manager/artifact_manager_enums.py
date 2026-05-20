@@ -26,6 +26,7 @@ class ArtifactKind:
     PROBE_RESULT = "probe.result"
     REPORT_JSON = "report.json"
     SNAPSHOT_CAPABILITY = "snapshot.capability"
+    TRACE_PLAN_VALIDATION = "trace.plan_validation"
 
 
 class MimeType:
