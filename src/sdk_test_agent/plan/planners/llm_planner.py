@@ -61,6 +61,13 @@ class LlmPlanner:
                 parts.append(f"Constraints: {llm.system_constraints_text}")
             for skill in llm.skills:
                 parts.append(f"Skill {skill.name}:\n{skill.content}")
+            capability_context = llm.extra_prompt_vars.get("capability_context")
+            if capability_context:
+                parts.append(f"Capability context:\n{capability_context}")
+            for key, value in sorted(llm.extra_prompt_vars.items()):
+                if key == "capability_context":
+                    continue
+                parts.append(f"Extra prompt var {key}: {json.dumps(value, default=str, sort_keys=True)}")
             for memory in llm.retrieved_plan_memories:
                 parts.append(f"Retrieved plan memory {memory.memory_id}: {json.dumps(memory.plan_json, default=str)}")
         return "\n\n".join(parts)
