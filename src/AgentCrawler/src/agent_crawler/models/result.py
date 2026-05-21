@@ -21,6 +21,7 @@ class FetchMeta:
     retries: int = 0
     fetched_at: datetime | None = None
     transport: TransportKind = TransportKind.HTTP
+    extra: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

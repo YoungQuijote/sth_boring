@@ -35,3 +35,4 @@ class CrawlRequest:
     persist_artifacts: bool = False
     debug: bool = False
     llm: LLMConfig | None = None
+    options: dict[str, object] = field(default_factory=dict)

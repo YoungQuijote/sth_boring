@@ -61,6 +61,8 @@ class BrowserFetchResponse:
     after_login_url: str | None = None
     before_login_density_score: float | None = None
     after_login_density_score: float | None = None
+    storage_state_used: bool = False
+    storage_state_saved: bool = False
 
 
 class BrowserFetcher:
@@ -100,6 +102,7 @@ class BrowserFetcher:
         session: object | None = None,
         keep_page_open: bool | None = None,
         owner_run_id: str | None = None,
+        interactive_login: bool | None = None,
     ) -> BrowserFetchResponse:
         if self._closed:
             raise RuntimeError("BrowserFetcher is closed")
@@ -158,7 +161,11 @@ class BrowserFetcher:
                 auth_reason = detection.reason
                 interactive_login_used = False
 
-                if detection.login_required and self.config.auth.interactive_login:
+                use_interactive_login = self.config.auth.interactive_login if interactive_login is None else interactive_login
+                if use_interactive_login and self.config.headless:
+                    raise ValueError(_INTERACTIVE_LOGIN_HEADLESS_ERROR)
+
+                if detection.login_required and use_interactive_login:
                     interactive_login_used = True
                     login_wait_result = await self._wait_for_interactive_login(
                         page=page,
@@ -180,7 +187,9 @@ class BrowserFetcher:
                             html = latest_html
                             final_url = page.url
 
+                storage_state_used = storage_state_path is not None and storage_state_path.exists()
                 storage_state_reason = await self._try_save_storage_state(context, storage_state_path)
+                storage_state_saved = storage_state_reason is None and storage_state_path is not None
                 if storage_state_reason:
                     auth_reason = f"{auth_reason};{storage_state_reason}" if auth_reason else storage_state_reason
 
@@ -197,6 +206,8 @@ class BrowserFetcher:
                     auth_reason=auth_reason,
                     interactive_login_used=interactive_login_used,
                     login_wait_result=login_wait_result,
+                    storage_state_used=storage_state_used,
+                    storage_state_saved=storage_state_saved,
                 )
 
                 if should_keep_open:
@@ -436,6 +447,8 @@ class BrowserFetcher:
         auth_reason: str | None,
         interactive_login_used: bool,
         login_wait_result: LoginWaitResult | None,
+        storage_state_used: bool,
+        storage_state_saved: bool,
     ) -> BrowserFetchResponse:
         return BrowserFetchResponse(
             url=url,
@@ -455,6 +468,8 @@ class BrowserFetcher:
             after_login_url=login_wait_result.after_url if login_wait_result is not None else None,
             before_login_density_score=detection.text_density_score if detection.login_required else None,
             after_login_density_score=login_wait_result.after_density_score if login_wait_result is not None else None,
+            storage_state_used=storage_state_used,
+            storage_state_saved=storage_state_saved,
         )
 
     def _build_redirect_chain(self, response: Any | None) -> list[str]:

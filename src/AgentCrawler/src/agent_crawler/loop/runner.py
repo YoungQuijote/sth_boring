@@ -68,11 +68,14 @@ class CrawlerRunner:
         self._record(trace, request=request, plan=plan, attempt=0, step=EventStep.POLICY, status=EventStatus.OK, message="plan built")
 
         last_error_type = ErrorType.MAX_ATTEMPTS_EXCEEDED
+        options = dict(getattr(request, "options", {}) or {})
+        cache_mode = str(options.get("cache_mode", "prefer"))
+
         for attempt in range(1, max(1, request.max_attempts) + 1):
             cache_key = self.result_cache.make_key(request, plan)
-            if plan.use_result_cache:
+            if plan.use_result_cache and cache_mode != "bypass":
                 cached = self.result_cache.get(cache_key)
-                if cached is not None:
+                if cached is not None and cache_mode != "refresh":
                     self._record(trace, request=request, plan=plan, attempt=attempt, step=EventStep.CACHE, status=EventStatus.OK, message="result cache hit")
                     cached.trace = trace
                     if request.render and cached.rendered is None:
@@ -84,7 +87,10 @@ class CrawlerRunner:
             self._record(trace, request=request, plan=plan, attempt=attempt, step=EventStep.SESSION, status=EventStatus.OK, message="session ready")
 
             try:
-                fetched = await self.fetcher.fetch(request.url, plan=plan, session=session)
+                try:
+                    fetched = await self.fetcher.fetch(request.url, plan=plan, session=session, options=options)
+                except TypeError:
+                    fetched = await self.fetcher.fetch(request.url, plan=plan, session=session)
                 self._record(
                     trace,
                     request=request,
