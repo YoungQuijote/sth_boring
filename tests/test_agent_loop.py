@@ -3,12 +3,14 @@ from __future__ import annotations
 import pytest
 
 from sdk_test_agent.agent_loop import (
+    InteractionDecision,
     LoopPolicy,
     RuntimeBindings,
     SdkRuntimeContext,
     TaskCheckDecision,
     TaskCheckRequest,
     build_langgraph_agent_loop,
+    route_after_interaction_decision,
     route_after_preflight,
     route_after_task_check,
     route_after_validate,
@@ -20,7 +22,7 @@ from sdk_test_agent.capability import CapabilityPanel, build_builtin_capability_
 from sdk_test_agent.execution.execution_enums import ExecutionRunStatus, ExecutionStepStatus
 from sdk_test_agent.execution.execution_models import ExecutionRun, ExecutionRunResult, StepExecutionResult
 from sdk_test_agent.plan import ExecutionPlanDraft, PlanFinalizer, PlanValidator
-from sdk_test_agent.plan.plan_enums import SUPPORTED_PLAN_STEP_KINDS, PlanStatus
+from sdk_test_agent.plan.plan_enums import SUPPORTED_PLAN_STEP_KINDS, ValidationStatus
 from sdk_test_agent.plan.plan_models import PlanStep
 
 
@@ -68,6 +70,14 @@ class FakeExecutionEngine:
         return ExecutionRunResult(run=run, status=ExecutionRunStatus.SUCCEEDED, step_results={"s1": StepExecutionResult(status=ExecutionStepStatus.SUCCEEDED)})
 
 
+class FakeInteractionDecider:
+    def __init__(self, decision: InteractionDecision):
+        self._decision = decision
+
+    def decide(self, request):
+        return self._decision
+
+
 class FakeTaskChecker:
     def __init__(self, decision: TaskCheckDecision):
         self._decision = decision
@@ -86,7 +96,7 @@ class FakeLlmClient:
         return LlmResponse(content=self.text)
 
 
-def _runtime(task_decision: TaskCheckDecision):
+def _runtime(task_decision: TaskCheckDecision, interaction_decision: InteractionDecision | None = None):
     bindings = RuntimeBindings(command_controller=FakeCommandController())
     return SdkRuntimeContext(
         bindings=bindings,
@@ -98,11 +108,14 @@ def _runtime(task_decision: TaskCheckDecision):
         execution_registry=FakeExecRegistry(),
         task_checker=FakeTaskChecker(task_decision),
         loop_policy=LoopPolicy(),
+        interaction_decider=FakeInteractionDecider(interaction_decision) if interaction_decision else None,
         metadata={"draft_cls": ExecutionPlanDraft},
     )
 
 
 def test_route_mappings() -> None:
+    assert route_after_interaction_decision({"interaction_decision": {"mode": "PLAN"}}) == "env_init"
+    assert route_after_interaction_decision({"interaction_decision": {"mode": "RETURN"}}) == "direct_return"
     assert route_after_validate({"validation_result": {"passed": True}}) == "preflight"
     assert route_after_validate({"validation_result": {"passed": False}}) == "fail"
     assert route_after_preflight({"preflight_result": {"passed": True}}) == "execute"
@@ -136,7 +149,7 @@ def test_procedural_smoke_once() -> None:
     runtime = _runtime(TaskCheckDecision(loop_level="satisfied", route="end", confidence=0.9, reason="done"))
     final = run_agent_loop_once({"task_id": "t1", "task_type": "sdk_deploy", "user_goal": "show utc-8 time", "iteration": 0}, runtime)
     assert final["loop_status"] == "succeeded"
-    assert final["validation_result"]["status"] == PlanStatus.PASSED
+    assert final["validation_result"]["status"] == ValidationStatus.PASSED
     assert final["task_check_decision"]["route"] == "end"
 
 
@@ -155,3 +168,34 @@ def test_langgraph_adapter_smoke_or_skip() -> None:
         pytest.skip("langgraph not installed")
     out = graph.invoke({"task_id": "t1", "task_type": "sdk_deploy", "user_goal": "utc", "iteration": 0})
     assert out["task_check_decision"]["route"] in {"end", "replan", "fail", "ask_input", "human_interrupt"}
+
+
+def test_direct_return_skips_planner_chain() -> None:
+    interaction = InteractionDecision(mode="RETURN", content="你好！", confidence=0.9, reason="greeting")
+    runtime = _runtime(TaskCheckDecision(loop_level="satisfied", route="end", confidence=0.9, reason="unused"), interaction)
+    final = run_agent_loop_once({"task_id": "t1", "task_type": "chat", "raw_user_input": "你好"}, runtime)
+    assert final["loop_status"] == "returned"
+    assert final["response_content"] == "你好！"
+    assert "draft_plan" not in final
+
+
+def test_plan_route_preserves_raw_input_and_uses_normalized_goal() -> None:
+    interaction = InteractionDecision(mode="PLAN", content="planning", confidence=0.9, reason="task", normalized_goal="show time")
+    runtime = _runtime(TaskCheckDecision(loop_level="satisfied", route="end", confidence=0.9, reason="done"), interaction)
+    final = run_agent_loop_once({"task_id": "t1", "task_type": "sdk", "raw_user_input": "please show time"}, runtime)
+    assert final["raw_user_input"] == "please show time"
+    assert final["user_goal"] == "show time"
+    assert final["loop_status"] == "succeeded"
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected_status"),
+    [("REFUSE", "refused"), ("HUMAN", "need_human")],
+)
+def test_non_plan_terminal_routes(mode: str, expected_status: str) -> None:
+    interaction = InteractionDecision(mode=mode, content="stop here", confidence=0.9, reason="terminal")
+    runtime = _runtime(TaskCheckDecision(loop_level="satisfied", route="end", confidence=0.9, reason="unused"), interaction)
+    final = run_agent_loop_once({"task_id": "t1", "task_type": "chat", "raw_user_input": "request"}, runtime)
+    assert final["loop_status"] == expected_status
+    assert final["response_content"] == "stop here"
+    assert "draft_plan" not in final

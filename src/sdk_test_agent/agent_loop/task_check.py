@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any, Literal, Protocol
 
 from sdk_test_agent.llm.llm_models import LlmMessage, LlmRequest
@@ -91,7 +91,7 @@ class LlmTaskChecker:
             "Return strict JSON with loop_level, route, confidence, reason.\n"
             "Allowed loop_level: satisfied, need_replan, failed, need_input, need_human, blocked.\n"
             "Allowed route: end, replan, fail, ask_input, human_interrupt.\n"
-            f"Request:\n{json.dumps(request.__dict__, ensure_ascii=False, sort_keys=True, default=str)}"
+            f"Request:\n{json.dumps(asdict(request), ensure_ascii=False, sort_keys=True, default=str)}"
         )
 
     @staticmethod

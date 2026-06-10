@@ -25,6 +25,7 @@ class SdkRuntimeContext:
     execution_registry: Any
     task_checker: Any
     loop_policy: Any
+    interaction_decider: Any | None = None
     clock: Any | None = None
     id_factory: Any | None = None
     metadata: dict[str, Any] = field(default_factory=dict)

@@ -1,10 +1,40 @@
 from __future__ import annotations
 
+from sdk_test_agent.agent_loop.interaction_decision import InteractionDecision, InteractionDecisionRequest
 from sdk_test_agent.agent_loop.preflight import run_preflight
 from sdk_test_agent.agent_loop.serializers import to_jsonable
 from sdk_test_agent.agent_loop.task_check import TaskCheckRequest
+from sdk_test_agent.capability import CapabilitySnapshot
 from sdk_test_agent.execution import ExecutionContext
-from sdk_test_agent.plan import LlmPlanningContext, PlanContextBase, PlannerInput
+from sdk_test_agent.plan import ExecutionPlan, ExecutionPlanDraft, LlmPlanningContext, PlanContextBase, PlanStep, PlannerInput
+
+
+def interaction_decision_node(state, runtime):
+    raw_user_input = state.get("raw_user_input") or state.get("user_goal", "")
+    if runtime.interaction_decider is None:
+        decision = InteractionDecision(
+            mode="PLAN",
+            content="",
+            confidence=1.0,
+            reason="No interaction decider is configured; preserve the legacy planning route.",
+            normalized_goal=raw_user_input,
+        )
+    else:
+        decision = runtime.interaction_decider.decide(
+            InteractionDecisionRequest(
+                raw_user_input=raw_user_input,
+                task_id=state.get("task_id"),
+                session_id=state.get("session_id"),
+                user_id=state.get("user_id"),
+                conversation_summary=state.get("conversation_summary"),
+                system_capability_summary=state.get("system_capability_summary"),
+                metadata=dict(state.get("metadata", {})),
+            )
+        )
+    update = {"raw_user_input": raw_user_input, "interaction_decision": to_jsonable(decision)}
+    if decision.mode == "PLAN":
+        update["user_goal"] = decision.normalized_goal
+    return update
 
 
 def build_available_context_keys(bindings) -> tuple[str, ...]:
@@ -59,15 +89,15 @@ def plan_node(state, runtime):
 
 def finalize_node(state, runtime):
     draft_cls = runtime.metadata.get("draft_cls")
-    draft = draft_cls(**state["draft_plan"]) if draft_cls else state["draft_plan"]
+    draft = _draft_from_dict(state["draft_plan"], draft_cls)
     cap_snap = state.get("capability_snapshot")
-    plan = runtime.plan_finalizer.finalize(draft, capability_snapshot=runtime.metadata.get("capability_snapshot_obj") or _obj_from_dict(cap_snap))
+    plan = runtime.plan_finalizer.finalize(draft, capability_snapshot=runtime.metadata.get("capability_snapshot_obj") or _capability_snapshot_from_dict(cap_snap))
     return {"plan_id": plan.plan_id, "plan": to_jsonable(plan)}
 
 
 def validate_node(state, runtime):
-    plan = runtime.metadata.get("plan_cls")(**state["plan"]) if runtime.metadata.get("plan_cls") else state["plan"]
-    cap_snap = runtime.metadata.get("capability_snapshot_obj") or _obj_from_dict(state.get("capability_snapshot"))
+    plan = _plan_from_dict(state["plan"], runtime.metadata.get("plan_cls"))
+    cap_snap = runtime.metadata.get("capability_snapshot_obj") or _capability_snapshot_from_dict(state.get("capability_snapshot"))
     result = runtime.plan_validator.validate(plan, capability_snapshot=cap_snap)
     return {"validation_result": to_jsonable(result)}
 
@@ -78,7 +108,7 @@ def preflight_node(state, runtime):
 
 
 def execute_node(state, runtime):
-    plan = runtime.metadata.get("plan_cls")(**state["plan"]) if runtime.metadata.get("plan_cls") else state["plan"]
+    plan = _plan_from_dict(state["plan"], runtime.metadata.get("plan_cls"))
     run_id = f"run_{state.get('iteration', 0)}"
     exec_ctx = ExecutionContext(task_id=state["task_id"], plan_id=state.get("plan_id", "plan_pending"), run_id=run_id, artifact_manager=runtime.bindings.artifact_manager, runtime_manager=runtime.bindings.runtime_manager, docker_driver=runtime.bindings.docker_driver, command_controller=runtime.bindings.command_controller, package_inspector=runtime.bindings.package_inspector, env_inspector=runtime.bindings.env_inspector)
     result = runtime.execution_engine.run(plan, exec_ctx)
@@ -102,17 +132,41 @@ def report_node(state, runtime):
     return {"loop_status": "succeeded", "report": {"plan_id": state.get("plan_id"), "run_id": state.get("run_id"), "decision": state.get("task_check_decision")}}
 
 
+def direct_return_node(state, runtime):
+    return {"loop_status": "returned", "response_content": state.get("interaction_decision", {}).get("content", "")}
+
+
+def refuse_return_node(state, runtime):
+    return {"loop_status": "refused", "response_content": state.get("interaction_decision", {}).get("content", "")}
+
+
 def fail_node(state, runtime):
     return {"loop_status": "failed"}
 
 
 def human_interrupt_node(state, runtime):
-    return {"loop_status": "need_human"}
+    return {"loop_status": "need_human", "response_content": state.get("interaction_decision", {}).get("content", "")}
 
 
-def _obj_from_dict(data):
-    class Obj:
-        def __init__(self, d):
-            for k, v in (d or {}).items():
-                setattr(self, k, v)
-    return Obj(data or {})
+def _draft_from_dict(data, draft_cls=None):
+    cls = draft_cls or ExecutionPlanDraft
+    payload = dict(data)
+    payload["steps"] = [step if isinstance(step, PlanStep) else PlanStep(**step) for step in payload.get("steps", [])]
+    return cls(**payload)
+
+
+def _plan_from_dict(data, plan_cls=None):
+    if not isinstance(data, dict):
+        return data
+    cls = plan_cls or ExecutionPlan
+    payload = dict(data)
+    payload["steps"] = [step if isinstance(step, PlanStep) else PlanStep(**step) for step in payload.get("steps", [])]
+    return cls(**payload)
+
+
+def _capability_snapshot_from_dict(data):
+    if data is None or isinstance(data, CapabilitySnapshot):
+        return data
+    if hasattr(CapabilitySnapshot, "model_validate"):
+        return CapabilitySnapshot.model_validate(data)
+    return CapabilitySnapshot(**data)

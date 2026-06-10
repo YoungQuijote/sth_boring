@@ -9,6 +9,13 @@ class SdkAgentState(TypedDict, total=False):
     task_id: str
     task_type: str
     user_goal: str
+    raw_user_input: str
+    interaction_decision: dict[str, Any]
+    response_content: str
+    session_id: str
+    user_id: str
+    conversation_summary: str
+    system_capability_summary: str
     iteration: int
     max_iterations: int
     loop_status: str
